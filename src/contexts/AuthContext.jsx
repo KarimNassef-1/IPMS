@@ -1,0 +1,204 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { auth, firebaseError, firebaseReady, firestore } from '../services/firebase'
+import { AuthContext } from './auth-context'
+import { DEFAULT_ROLE_PERMISSIONS } from '../utils/constants'
+import { subscribeRolePermissions } from '../services/teamUsersService'
+
+function resolveDefaultRole(email) {
+  const normalized = String(email || '').trim().toLowerCase()
+
+  if (normalized === 'thefightholic111@gmail.com' || normalized === 'karim@infinitepixels.com') {
+    return 'admin'
+  }
+
+  return 'partner'
+}
+
+function normalizeRole(roleValue) {
+  const normalized = String(roleValue || '').trim().toLowerCase()
+  if (normalized === 'admin') return 'admin'
+  if (normalized === 'partner') return 'partner'
+  if (normalized === 'manager') return 'manager'
+  if (normalized === 'finance') return 'finance'
+  if (normalized === 'delivery') return 'delivery'
+  if (normalized === 'viewer') return 'viewer'
+  return null
+}
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null)
+  const [role, setRole] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [rolePermissions, setRolePermissions] = useState(DEFAULT_ROLE_PERMISSIONS)
+  const [loading, setLoading] = useState(firebaseReady)
+
+  useEffect(() => {
+    if (!firebaseReady || !firestore) return undefined
+
+    const unsubscribePermissions = subscribeRolePermissions(
+      (map) => {
+        setRolePermissions({ ...DEFAULT_ROLE_PERMISSIONS, ...map })
+      },
+      () => {
+        setRolePermissions(DEFAULT_ROLE_PERMISSIONS)
+      },
+    )
+
+    return () => unsubscribePermissions()
+  }, [])
+
+  useEffect(() => {
+    if (!firebaseReady || !auth || !firestore) {
+      setLoading(false)
+
+      if (firebaseError) {
+        console.error(firebaseError)
+      }
+
+      return undefined
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      try {
+        if (!firebaseUser) {
+          setUser(null)
+          setRole(null)
+          setProfile(null)
+          setLoading(false)
+          return
+        }
+
+        setUser(firebaseUser)
+
+        const userDocRef = doc(firestore, 'users', firebaseUser.uid)
+        const userSnapshot = await getDoc(userDocRef)
+
+        if (userSnapshot.exists()) {
+          const userData = userSnapshot.data()
+          const normalizedRole = normalizeRole(userSnapshot.data().role)
+
+          setProfile({
+            name: userData.name || firebaseUser.displayName || 'User',
+            photoURL: userData.photoURL || firebaseUser.photoURL || '',
+          })
+
+          if (normalizedRole) {
+            setRole(normalizedRole)
+          } else {
+            const defaultRole = resolveDefaultRole(firebaseUser.email)
+
+            await setDoc(
+              userDocRef,
+              {
+                ...userData,
+                name: userData.name || firebaseUser.displayName || 'User',
+                email: userData.email || firebaseUser.email || '',
+                role: defaultRole,
+              },
+              { merge: true },
+            )
+
+            setRole(defaultRole)
+          }
+        } else {
+          const defaultRole = resolveDefaultRole(firebaseUser.email)
+
+          await setDoc(userDocRef, {
+            name: firebaseUser.displayName || 'User',
+            photoURL: firebaseUser.photoURL || '',
+            email: firebaseUser.email || '',
+            role: defaultRole,
+            createdAt: new Date().toISOString(),
+          })
+
+          setProfile({
+            name: firebaseUser.displayName || 'User',
+            photoURL: firebaseUser.photoURL || '',
+          })
+
+          setRole(defaultRole)
+        }
+      } catch (error) {
+        console.error('Failed to resolve auth state:', error)
+        setRole(null)
+      } finally {
+        setLoading(false)
+      }
+    })
+
+    return () => unsubscribe()
+  }, [])
+
+  async function login(email, password) {
+    const normalizedEmail = String(email).trim().toLowerCase()
+
+    if (!firebaseReady || !auth) {
+      throw new Error(firebaseError || 'Firebase is not initialized. Authentication is unavailable.')
+    }
+
+    return signInWithEmailAndPassword(auth, normalizedEmail, password)
+  }
+
+  async function logout() {
+    if (!auth) return
+    return signOut(auth)
+  }
+
+  const updateProfileSettings = useCallback(async (payload) => {
+    if (!firebaseReady || !firestore || !auth?.currentUser) {
+      throw new Error(firebaseError || 'Firebase is not initialized. Profile update is unavailable.')
+    }
+
+    const safeName = String(payload?.name || '').trim().slice(0, 80)
+    const safePhotoURL = String(payload?.photoURL || '').trim()
+
+    const nextProfile = {
+      name: safeName || profile?.name || user?.displayName || 'User',
+      photoURL: safePhotoURL,
+    }
+
+    await setDoc(
+      doc(firestore, 'users', auth.currentUser.uid),
+      {
+        name: nextProfile.name,
+        photoURL: nextProfile.photoURL,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    )
+
+    setProfile(nextProfile)
+    return nextProfile
+  }, [profile?.name, user?.displayName])
+
+  const value = useMemo(
+    () => ({
+      user,
+      role,
+      profile,
+      rolePermissions,
+      loading,
+      firebaseReady,
+      firebaseError,
+      login,
+      logout,
+      updateProfileSettings,
+      hasAccess: (permissionKey) => {
+        if (role === 'admin') return true
+        const permissions = rolePermissions?.[role] || []
+        return permissions.includes(permissionKey)
+      },
+      isAdmin: role === 'admin',
+      isPartner: role === 'partner',
+    }),
+    [user, role, profile, rolePermissions, loading, updateProfileSettings],
+  )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}

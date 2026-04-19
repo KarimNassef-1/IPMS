@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userRole() == 'admin';
+    }
+
+    function isPartner() {
+      return isSignedIn() && userRole() == 'partner';
+    }
+
+    function isAdminOrPartner() {
+      return isAdmin() || isPartner();
+    }
+
+    function isTaskAssignedToYoussef(taskData) {
+      return taskData.assignedTo == 'Youssef';
+    }
+
+    match /users/{userId} {
+      // Always allow users to read their own profile doc so role lookup can succeed.
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Users can create their own profile doc, and admins can create managed user docs.
+      allow create: if isOwner(userId) || isAdmin();
+
+      // Only admin can delete users docs.
+      allow delete: if isAdmin();
+
+      // Role changes must be admin-controlled only.
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAdminOrPartner();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /services/{serviceId} {
+      allow read: if isAdminOrPartner();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAdminOrPartner();
+      allow create: if isAdmin() || (isPartner() && isTaskAssignedToYoussef(request.resource.data));
+      allow update: if isAdmin() || (
+        isPartner() &&
+        isTaskAssignedToYoussef(resource.data) &&
+        request.resource.data.locked == resource.data.locked
+      );
+      allow delete: if isAdmin() || (
+        isPartner() &&
+        isTaskAssignedToYoussef(resource.data) &&
+        resource.data.locked != true
+      );
+    }
+
+    match /daily_tasks/{taskId} {
+      allow read: if isAdminOrPartner();
+      allow create, update: if isAdminOrPartner();
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAdminOrPartner();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /budgets/{budgetId} {
+      allow read: if isAdminOrPartner();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isAdminOrPartner();
+      allow create, update: if isAdminOrPartner();
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow create: if isAdminOrPartner();
+      allow update, delete: if isAdmin();
+    }
+
+    match /custom_pages/{pageId} {
+      allow read: if isAdminOrPartner();
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}
