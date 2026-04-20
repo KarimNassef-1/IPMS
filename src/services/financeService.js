@@ -11,13 +11,14 @@ import {
 } from "firebase/firestore";
 import { ensureFirebaseReady } from "./firebase";
 import { calculateDistribution } from "../utils/calculations";
+import { parseMoney } from "../utils/helpers";
 
 const TRANSACTIONS = "transactions";
 const EXPENSES = "expenses";
 
 export async function recordIncome(payload) {
 	const firestore = ensureFirebaseReady();
-	const totalAmount = Number(payload.totalAmount) || 0;
+	const totalAmount = parseMoney(payload.totalAmount);
 	const distribution = calculateDistribution(totalAmount);
 	const data = {
 		...payload,
@@ -52,8 +53,13 @@ export function subscribeTransactions(onData, onError) {
 
 export async function updateTransaction(id, payload) {
 	const firestore = ensureFirebaseReady();
+	const nextPayload = { ...payload };
 
-	await updateDoc(doc(firestore, TRANSACTIONS, id), payload);
+	if (Object.prototype.hasOwnProperty.call(nextPayload, "totalAmount")) {
+		nextPayload.totalAmount = parseMoney(nextPayload.totalAmount);
+	}
+
+	await updateDoc(doc(firestore, TRANSACTIONS, id), nextPayload);
 }
 
 export async function deleteTransaction(id) {
@@ -66,7 +72,7 @@ export async function addExpense(payload) {
 	const firestore = ensureFirebaseReady();
 	const data = {
 		...payload,
-		amount: Number(payload.amount) || 0,
+		amount: parseMoney(payload.amount),
 		createdAt: new Date().toISOString(),
 	};
 
@@ -103,8 +109,13 @@ export function subscribeExpenses(onData, onError) {
 
 export async function updateExpense(id, payload) {
 	const firestore = ensureFirebaseReady();
+	const nextPayload = { ...payload };
 
-	await updateDoc(doc(firestore, EXPENSES, id), payload);
+	if (Object.prototype.hasOwnProperty.call(nextPayload, "amount")) {
+		nextPayload.amount = parseMoney(nextPayload.amount);
+	}
+
+	await updateDoc(doc(firestore, EXPENSES, id), nextPayload);
 }
 
 export async function deleteExpense(id) {

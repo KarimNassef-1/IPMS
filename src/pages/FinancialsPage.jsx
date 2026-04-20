@@ -219,22 +219,22 @@ export default function FinancialsPage() {
       title="Financial System"
       description="Clean financial dashboard sourced directly from Projects calculations."
     >
-      <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50 p-5">
+      <section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-emerald-50">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Financial Overview</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+          <div className="ip-stat-card">
             <p className="text-xs text-slate-500">Contract Value</p>
             <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(summary.contractTotal)}</p>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-emerald-100">
+          <div className="ip-stat-card">
             <p className="text-xs text-slate-500">Agency Share</p>
             <p className="mt-1 text-2xl font-black text-emerald-700">{formatCurrency(summary.agencyShareTotal)}</p>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-sky-100">
+          <div className="ip-stat-card">
             <p className="text-xs text-slate-500">Recognized Paid</p>
             <p className="mt-1 text-2xl font-black text-sky-700">{formatCurrency(summary.recognizedPaidTotal)}</p>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-amber-100">
+          <div className="ip-stat-card">
             <p className="text-xs text-slate-500">Pending Share</p>
             <p className="mt-1 text-2xl font-black text-amber-700">{formatCurrency(summary.pendingTotal)}</p>
           </div>
@@ -255,7 +255,7 @@ export default function FinancialsPage() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h4 className="font-bold text-slate-900">Distribution Snapshot</h4>
@@ -273,7 +273,7 @@ export default function FinancialsPage() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h4 className="font-bold text-slate-900">Recognized Services</h4>
@@ -310,45 +310,45 @@ export default function FinancialsPage() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <h4 className="font-bold text-slate-900">Calculation Audit</h4>
         <p className="mt-1 text-xs text-slate-500">Service-by-service budget contribution breakdown.</p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full text-xs">
+        <div className="ip-table-wrap mt-4">
+          <table className="ip-table">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
-                <th className="px-2 py-2">Service</th>
-                <th className="px-2 py-2">Mode</th>
-                <th className="px-2 py-2">Recognized</th>
-                <th className="px-2 py-2">Karim</th>
-                <th className="px-2 py-2">Youssef</th>
-                <th className="px-2 py-2">Ops</th>
-                <th className="px-2 py-2">Marketing</th>
-                <th className="px-2 py-2">Manual Diff</th>
+              <tr>
+                <th>Service</th>
+                <th>Mode</th>
+                <th>Recognized</th>
+                <th>Karim</th>
+                <th>Youssef</th>
+                <th>Ops</th>
+                <th>Marketing</th>
+                <th>Manual Diff</th>
               </tr>
             </thead>
             <tbody>
               {serviceAllocationRows.map((item) => (
-                <tr key={item.id} className="border-b border-slate-100">
-                  <td className="px-2 py-2 text-slate-800">{item.projectName} - {item.serviceName}</td>
-                  <td className="px-2 py-2">
+                <tr key={item.id}>
+                  <td className="text-slate-800">{item.projectName} - {item.serviceName}</td>
+                  <td>
                     <span className={item.mode === 'manual' ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>
                       {item.mode}
                     </span>
                   </td>
-                  <td className="px-2 py-2 font-semibold text-slate-800">{formatCurrency(item.recognized)}</td>
-                  <td className="px-2 py-2 text-slate-800">{formatCurrency(item.karimSalary)}</td>
-                  <td className="px-2 py-2 text-slate-800">{formatCurrency(item.youssefSalary)}</td>
-                  <td className="px-2 py-2 text-slate-800">{formatCurrency(item.agencyOperations)}</td>
-                  <td className="px-2 py-2 text-slate-800">{formatCurrency(item.marketingSales)}</td>
-                  <td className={item.mode === 'manual' && item.manualDifference !== 0 ? 'px-2 py-2 font-semibold text-amber-700' : 'px-2 py-2 text-slate-400'}>
+                  <td className="font-semibold text-slate-800">{formatCurrency(item.recognized)}</td>
+                  <td className="text-slate-800">{formatCurrency(item.karimSalary)}</td>
+                  <td className="text-slate-800">{formatCurrency(item.youssefSalary)}</td>
+                  <td className="text-slate-800">{formatCurrency(item.agencyOperations)}</td>
+                  <td className="text-slate-800">{formatCurrency(item.marketingSales)}</td>
+                  <td className={item.mode === 'manual' && item.manualDifference !== 0 ? 'font-semibold text-amber-700' : 'text-slate-400'}>
                     {item.mode === 'manual' ? formatCurrency(item.manualDifference) : '-'}
                   </td>
                 </tr>
               ))}
               {serviceAllocationRows.length === 0 ? (
                 <tr>
-                  <td className="px-2 py-3 text-slate-500" colSpan={8}>No planner-included paid services yet.</td>
+                  <td className="text-slate-500" colSpan={8}>No planner-included paid services yet.</td>
                 </tr>
               ) : null}
             </tbody>

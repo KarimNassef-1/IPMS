@@ -32,7 +32,7 @@ import {
 } from "../services/projectService";
 import { getTasks, subscribeTasks } from "../services/taskService";
 import { calculateRecognizedPaidRevenue, groupByMonth } from "../utils/calculations";
-import { formatCurrency } from "../utils/helpers";
+import { formatCurrency, parseMoney } from "../utils/helpers";
 import { serviceAgencyShareValue } from "../utils/serviceFinance";
 
 const PIE_COLORS = ["#8246f6", "#a989f8", "#d2c2ff", "#5f2fe2", "#7b5eea", "#b7a2fa"];
@@ -174,10 +174,10 @@ export default function AnalyticsPage() {
 		);
 		const totalPending = Math.max(totalAgencyShare - totalRecognized, 0);
 
-		const totalExpenses = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+		const totalExpenses = expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0);
 		const recognizedNet = totalRecognized - totalExpenses;
 
-		const cashIn = transactions.reduce((sum, item) => sum + (Number(item.totalAmount) || 0), 0);
+		const cashIn = transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0);
 		const cashOut = totalExpenses;
 		const cashPosition = cashIn - cashOut;
 
@@ -271,7 +271,7 @@ export default function AnalyticsPage() {
 
 		const expenseByCategory = expenses.reduce((acc, item) => {
 			const category = item.category || "Uncategorized";
-			acc[category] = (acc[category] || 0) + (Number(item.amount) || 0);
+			acc[category] = (acc[category] || 0) + parseMoney(item.amount);
 			return acc;
 		}, {});
 
@@ -363,23 +363,23 @@ export default function AnalyticsPage() {
 			title="Analytics"
 			description="High-signal analytics across recognition quality, cash dynamics, concentration, and operational execution."
 		>
-			<section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-indigo-50 p-5">
+			<section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-indigo-50">
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-					<div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+					<div className="ip-stat-card">
 						<div className="flex items-center justify-between">
 							<p className="text-xs uppercase tracking-wider text-slate-500">Recognized Paid</p>
 							<TrendChip trend={analytics.recognizedTrend} />
 						</div>
 						<p className="mt-2 text-2xl font-black text-slate-900">{formatCurrency(analytics.totalRecognized)}</p>
 					</div>
-					<div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+					<div className="ip-stat-card">
 						<div className="flex items-center justify-between">
 							<p className="text-xs uppercase tracking-wider text-slate-500">Expenses</p>
 							<TrendChip trend={analytics.expenseTrend} />
 						</div>
 						<p className="mt-2 text-2xl font-black text-rose-700">{formatCurrency(analytics.totalExpenses)}</p>
 					</div>
-					<div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+					<div className="ip-stat-card">
 						<div className="flex items-center justify-between">
 							<p className="text-xs uppercase tracking-wider text-slate-500">Recognized Net</p>
 							<TrendChip trend={analytics.netTrend} />
@@ -388,11 +388,11 @@ export default function AnalyticsPage() {
 							{formatCurrency(analytics.recognizedNet)}
 						</p>
 					</div>
-					<div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+					<div className="ip-stat-card">
 						<p className="text-xs uppercase tracking-wider text-slate-500">Pending Share</p>
 						<p className="mt-2 text-2xl font-black text-amber-700">{formatCurrency(analytics.totalPending)}</p>
 					</div>
-					<div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+					<div className="ip-stat-card">
 						<p className="text-xs uppercase tracking-wider text-slate-500">Cash Position</p>
 						<p className={`mt-2 text-2xl font-black ${analytics.cashPosition >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
 							{formatCurrency(analytics.cashPosition)}
@@ -405,7 +405,7 @@ export default function AnalyticsPage() {
 			</section>
 
 			<section className="mt-6 grid gap-4 xl:grid-cols-3">
-				<div className="rounded-3xl border border-slate-200 bg-white p-5 xl:col-span-2">
+				<div className="ip-surface-section xl:col-span-2">
 					<div className="mb-3 flex items-end justify-between gap-2">
 						<div>
 							<h4 className="font-bold text-slate-900">Financial Momentum</h4>
@@ -432,7 +432,7 @@ export default function AnalyticsPage() {
 					</div>
 				</div>
 
-				<div className="rounded-3xl border border-slate-200 bg-white p-5">
+				<div className="ip-surface-section">
 					<h4 className="font-bold text-slate-900">Execution Quality</h4>
 					<p className="text-xs text-slate-500">Operational rates calibrated to 100% target.</p>
 					<div className="mt-3 h-80">
@@ -448,7 +448,7 @@ export default function AnalyticsPage() {
 			</section>
 
 			<section className="mt-6 grid gap-4 xl:grid-cols-2">
-				<div className="rounded-3xl border border-slate-200 bg-white p-5">
+				<div className="ip-surface-section">
 					<h4 className="font-bold text-slate-900">Client Revenue Concentration</h4>
 					<p className="text-xs text-slate-500">Top clients by recognized paid and concentration share.</p>
 					<div className="mt-3 h-80">
@@ -468,7 +468,7 @@ export default function AnalyticsPage() {
 					</div>
 				</div>
 
-				<div className="rounded-3xl border border-slate-200 bg-white p-5">
+				<div className="ip-surface-section">
 					<h4 className="font-bold text-slate-900">Expense Mix & Delivery Split</h4>
 					<p className="text-xs text-slate-500">Category burn profile and recognized delivery composition.</p>
 					<div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -507,7 +507,7 @@ export default function AnalyticsPage() {
 				</div>
 			</section>
 
-			<section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+			<section className="ip-surface-section mt-6">
 				<div className="mb-3 flex items-end justify-between gap-2">
 					<div>
 						<h4 className="font-bold text-slate-900">Top Project Intelligence</h4>
@@ -515,31 +515,31 @@ export default function AnalyticsPage() {
 					</div>
 				</div>
 
-				<div className="overflow-x-auto">
-					<table className="min-w-full text-xs">
+				<div className="ip-table-wrap">
+					<table className="ip-table">
 						<thead>
-							<tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
-								<th className="px-2 py-2">Project</th>
-								<th className="px-2 py-2">Status</th>
-								<th className="px-2 py-2">Services</th>
-								<th className="px-2 py-2">Recognized</th>
-								<th className="px-2 py-2">Pending</th>
+							<tr>
+								<th>Project</th>
+								<th>Status</th>
+								<th>Services</th>
+								<th>Recognized</th>
+								<th>Pending</th>
 							</tr>
 						</thead>
 						<tbody>
 							{analytics.projectRows.length ? (
 								analytics.projectRows.map((row) => (
-									<tr key={row.id} className="border-b border-slate-100 text-slate-700">
-										<td className="px-2 py-2 font-semibold text-slate-900">{row.projectName}</td>
-										<td className="px-2 py-2">{row.status}</td>
-										<td className="px-2 py-2">{row.services}</td>
-										<td className="px-2 py-2 text-sky-700">{formatCurrency(row.recognized)}</td>
-										<td className="px-2 py-2 text-amber-700">{formatCurrency(row.pending)}</td>
+									<tr key={row.id}>
+										<td className="font-semibold text-slate-900">{row.projectName}</td>
+										<td>{row.status}</td>
+										<td>{row.services}</td>
+										<td className="text-sky-700">{formatCurrency(row.recognized)}</td>
+										<td className="text-amber-700">{formatCurrency(row.pending)}</td>
 									</tr>
 								))
 							) : (
 								<tr>
-									<td className="px-2 py-4 text-slate-500" colSpan={5}>
+									<td className="text-slate-500" colSpan={5}>
 										No project analytics rows yet.
 									</td>
 								</tr>

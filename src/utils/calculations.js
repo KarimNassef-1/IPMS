@@ -1,4 +1,5 @@
 import { calculateServiceRecognizedPaidRevenue } from "./serviceFinance";
+import { parseMoney } from "./helpers";
 
 export const DISTRIBUTION_PERCENTAGES = {
 	karimSalary: 0.35,
@@ -37,7 +38,7 @@ export function groupByMonth(items, dateKey = "date", amountKey = "amount") {
 		if (Number.isNaN(date.getTime())) return acc;
 
 		const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-		acc[key] = (acc[key] || 0) + (Number(item?.[amountKey]) || 0);
+		acc[key] = (acc[key] || 0) + parseMoney(item?.[amountKey]);
 		return acc;
 	}, {});
 }

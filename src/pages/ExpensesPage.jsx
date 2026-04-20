@@ -2,7 +2,7 @@ import ModuleShell from '../components/layout/ModuleShell'
 import { useEffect, useMemo, useState } from 'react'
 import { addExpense, deleteExpense, getExpenses } from '../services/financeService'
 import { EXPENSE_CATEGORIES } from '../utils/constants'
-import { formatCurrency } from '../utils/helpers'
+import { formatCurrency, parseMoney } from '../utils/helpers'
 import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
 
@@ -28,7 +28,7 @@ export default function ExpensesPage() {
   }, [])
 
   const totalExpenses = useMemo(
-    () => expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    () => expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0),
     [expenses],
   )
 
@@ -43,7 +43,7 @@ export default function ExpensesPage() {
       status: 'unread',
     })
 
-    if ((Number(form.amount) || 0) > 10000) {
+    if (parseMoney(form.amount) > 10000) {
       await createNotification({
         userId: user?.uid,
         message: `Budget low warning for ${form.category}: high expense detected`,

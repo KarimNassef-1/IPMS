@@ -5,6 +5,8 @@
 	--ip-primary: #8246f6;
 	--ip-primary-strong: #6f39e7;
 	--ip-primary-soft: #f0e9ff;
+	--ip-surface-glass: rgba(255, 255, 255, 0.7);
+	--ip-border-soft: rgba(148, 163, 184, 0.2);
 }
 
 * {
@@ -21,6 +23,12 @@ body {
 		#f8f9fc 45%,
 		#ffffff 100%
 	);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+#root {
+	min-height: 100vh;
 }
 
 a {
@@ -99,6 +107,93 @@ a {
 	background: var(--ip-primary);
 }
 
+.ip-surface-section {
+	border: 1px solid rgba(148, 163, 184, 0.22);
+	border-radius: 1.25rem;
+	background: linear-gradient(
+		180deg,
+		rgba(255, 255, 255, 0.9) 0%,
+		rgba(248, 250, 252, 0.84) 100%
+	);
+	box-shadow: 0 16px 36px -30px rgba(15, 23, 42, 0.55);
+	padding: 1rem;
+}
+
+.ip-stat-card {
+	border: 1px solid rgba(226, 232, 240, 0.85);
+	border-radius: 1rem;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.45);
+	padding: 0.9rem;
+}
+
+.ip-table-wrap {
+	overflow-x: auto;
+	border-radius: 1rem;
+	border: 1px solid rgba(226, 232, 240, 0.95);
+	background: rgba(255, 255, 255, 0.82);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+	-webkit-overflow-scrolling: touch;
+}
+
+.ip-table {
+	min-width: 100%;
+	font-size: 0.75rem;
+	border-collapse: collapse;
+}
+
+.ip-table thead tr {
+	border-bottom: 1px solid rgba(226, 232, 240, 1);
+	background: rgba(248, 250, 252, 0.95);
+	color: #475569;
+	text-align: left;
+}
+
+.ip-table th,
+.ip-table td {
+	padding: 0.6rem 0.65rem;
+	white-space: nowrap;
+}
+
+.ip-table tbody tr {
+	border-bottom: 1px solid rgba(241, 245, 249, 1);
+	color: #334155;
+}
+
+.ip-table tbody tr:last-child {
+	border-bottom: none;
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+input,
+select,
+textarea {
+	transition:
+		border-color 0.2s ease,
+		box-shadow 0.2s ease,
+		background-color 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible,
+a:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px rgba(130, 70, 246, 0.2);
+}
+
+section,
+article {
+	overflow-wrap: anywhere;
+}
+
 .ip-auth-card {
 	position: relative;
 	isolation: isolate;
@@ -111,8 +206,18 @@ a {
 	width: 420px;
 	border-radius: 999px;
 	background:
-		radial-gradient(circle, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.08) 40%, rgba(255, 255, 255, 0) 72%),
-		linear-gradient(135deg, rgba(255, 186, 244, 0.4) 0%, rgba(130, 70, 246, 0.18) 48%, rgba(97, 215, 255, 0.12) 100%);
+		radial-gradient(
+			circle,
+			rgba(255, 255, 255, 0.26) 0%,
+			rgba(255, 255, 255, 0.08) 40%,
+			rgba(255, 255, 255, 0) 72%
+		),
+		linear-gradient(
+			135deg,
+			rgba(255, 186, 244, 0.4) 0%,
+			rgba(130, 70, 246, 0.18) 48%,
+			rgba(97, 215, 255, 0.12) 100%
+		);
 	filter: blur(2px);
 	animation: ip-auth-float 14s ease-in-out infinite;
 	pointer-events: none;
@@ -132,7 +237,12 @@ a {
 	top: -110px;
 	height: 300px;
 	width: 300px;
-	background: radial-gradient(circle, rgba(130, 70, 246, 0.3) 0%, rgba(130, 70, 246, 0.05) 62%, rgba(130, 70, 246, 0) 100%);
+	background: radial-gradient(
+		circle,
+		rgba(130, 70, 246, 0.3) 0%,
+		rgba(130, 70, 246, 0.05) 62%,
+		rgba(130, 70, 246, 0) 100%
+	);
 }
 
 .ip-auth-orb--two {
@@ -141,7 +251,12 @@ a {
 	height: 340px;
 	width: 340px;
 	animation-delay: -5s;
-	background: radial-gradient(circle, rgba(95, 150, 255, 0.3) 0%, rgba(95, 150, 255, 0.06) 65%, rgba(95, 150, 255, 0) 100%);
+	background: radial-gradient(
+		circle,
+		rgba(95, 150, 255, 0.3) 0%,
+		rgba(95, 150, 255, 0.06) 65%,
+		rgba(95, 150, 255, 0) 100%
+	);
 }
 
 .ip-auth-orb--three {
@@ -150,7 +265,12 @@ a {
 	height: 220px;
 	width: 220px;
 	animation-delay: -9s;
-	background: radial-gradient(circle, rgba(255, 179, 226, 0.28) 0%, rgba(255, 179, 226, 0.07) 58%, rgba(255, 179, 226, 0) 100%);
+	background: radial-gradient(
+		circle,
+		rgba(255, 179, 226, 0.28) 0%,
+		rgba(255, 179, 226, 0.07) 58%,
+		rgba(255, 179, 226, 0) 100%
+	);
 }
 
 @keyframes ip-auth-flow {
@@ -188,6 +308,42 @@ a {
 		height: 320px;
 		width: 320px;
 		right: -28%;
+	}
+}
+
+@media (max-width: 768px) {
+	body {
+		background: radial-gradient(
+			circle at 4% 4%,
+			#f4ecff 0%,
+			#edf3ff 42%,
+			#f8fafc 100%
+		);
+	}
+
+	* {
+		-webkit-tap-highlight-color: rgba(130, 70, 246, 0.15);
+	}
+}
+
+@media (max-width: 520px) {
+	h1,
+	h2,
+	h3 {
+		.ip-surface-section {
+			padding: 0.85rem;
+			border-radius: 1rem;
+		}
+
+		.ip-stat-card {
+			padding: 0.8rem;
+		}
+
+		.ip-table th,
+		.ip-table td {
+			padding: 0.5rem 0.55rem;
+		}
+		letter-spacing: -0.02em;
 	}
 }
 

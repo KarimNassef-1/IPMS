@@ -23,10 +23,10 @@ const navigationItems = [
 
 function itemClassName(isActive, isSubmenu = false) {
   const base = isSubmenu
-    ? 'group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors'
-    : 'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors'
+    ? 'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors'
+    : 'group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors'
   return isActive
-    ? `${base} bg-[#f0e9ff] text-[#8246f6] underline decoration-2 underline-offset-8`
+    ? `${base} bg-[#f0e9ff] text-[#8246f6] shadow-sm underline decoration-2 underline-offset-8`
     : `${base} text-[#8246f6] hover:bg-[#f0e9ff]`
 }
 
@@ -206,7 +206,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
   return (
     <>
       <aside
-        className={`relative hidden shrink-0 rounded-3xl bg-transparent p-5 transition-all duration-300 lg:sticky lg:top-0 lg:block lg:h-full ${isSidebarCollapsed ? 'w-24' : 'w-64'}`}
+        className={`relative hidden shrink-0 rounded-3xl bg-transparent p-4 transition-all duration-300 lg:sticky lg:top-2 lg:block lg:h-[calc(100%-0.5rem)] ${isSidebarCollapsed ? 'w-24' : 'w-64'}`}
       >
         <button
           type="button"
@@ -311,27 +311,38 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
 
       {mobileMenuOpen ? (
         <div
-          className="fixed inset-0 z-40 bg-slate-900/45 backdrop-blur-[1px] lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-900/52 backdrop-blur-[2px] lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
           aria-hidden="true"
         />
       ) : null}
 
-      <aside
-        className={`fixed left-0 top-0 z-50 h-full w-72 border-r border-white/35 bg-white/55 p-5 shadow-2xl shadow-[#6f39e7]/15 backdrop-blur-2xl transition-transform duration-300 lg:hidden ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      <button
+        type="button"
+        onClick={() => setMobileMenuOpen(true)}
+        aria-label="Open menu"
+        className={`fixed left-0 top-1/2 z-40 -translate-y-1/2 rounded-r-xl border border-l-0 border-white/60 bg-white/78 p-2.5 text-[#6f39e7] shadow-lg shadow-[#6f39e7]/15 backdrop-blur-xl transition duration-200 hover:bg-white lg:hidden ${mobileMenuOpen ? 'pointer-events-none -translate-x-full opacity-0' : 'translate-x-0 opacity-100'}`}
       >
-        <div className="mb-4 flex shrink-0 items-center justify-between border-b border-white/60 pb-4">
+        <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden="true">
+          <path d="M7 4.5L12.5 10L7 15.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      <aside
+        className={`fixed left-0 top-0 z-50 h-full w-[min(88vw,20rem)] border-r border-white/45 bg-white/68 p-4 shadow-2xl shadow-[#6f39e7]/20 backdrop-blur-2xl transition-transform duration-300 lg:hidden ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        <div className="mb-3 flex shrink-0 items-center justify-between border-b border-white/65 pb-3">
           <img src="/ip-badge.png" alt="Infinite Pixels badge" className="w-44 h-auto max-w-[220px] object-contain" />
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
-            className="rounded-md px-2 py-1 text-sm font-semibold text-slate-600 transition hover:bg-white/60"
+            className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-white/60"
           >
             Close
           </button>
         </div>
 
-        <nav className="ip-sidebar-scroll h-[calc(100%-6.5rem)] space-y-2 overflow-y-auto pr-1">
+        <nav className="ip-sidebar-scroll h-[calc(100%-6rem)] space-y-1.5 overflow-y-auto pr-1">
           {filteredItems.map((item) => (
             <div key={item.to}>
               <NavLink

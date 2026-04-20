@@ -92,6 +92,22 @@ export default function TasksPage() {
     return Number(((completed / todaysDailyTasks.length) * 100).toFixed(2))
   }, [todaysDailyTasks])
 
+  function isAssignedToYoussef(taskLike) {
+    return String(taskLike?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME
+  }
+
+  function canManageTask(task) {
+    if (isAdmin) return true
+    if (role !== 'partner') return false
+    return isAssignedToYoussef(task)
+  }
+
+  function canManageDailyTask(task) {
+    if (isAdmin) return true
+    if (role !== 'partner') return false
+    return isAssignedToYoussef(task)
+  }
+
   function handleChange(event) {
     const { name, value } = event.target
     setForm((current) => ({ ...current, [name]: value }))
@@ -126,6 +142,11 @@ export default function TasksPage() {
   }
 
   async function handleStatusChange(task, status) {
+    if (!canManageTask(task)) {
+      setStatusMessage('You can only update your own tasks.')
+      return
+    }
+
     setStatusMessage('')
     await updateTask(task.id, { status })
     if (status === 'Completed' && isAdmin) {
@@ -140,11 +161,7 @@ export default function TasksPage() {
   }
 
   function canDeleteTask(task) {
-    if (isAdmin) return true
-    if (role !== 'partner') return false
-
-    const assignedTo = String(task?.assignedTo || '').trim().toLowerCase()
-    return assignedTo === YOUSSEF_NAME && task?.locked !== true
+    return canManageTask(task) && task?.locked !== true
   }
 
   async function removeTask(taskId) {
@@ -194,6 +211,11 @@ export default function TasksPage() {
     event.preventDefault()
     if (!canViewDailyTasks) return
 
+    if (role === 'partner' && !isAssignedToYoussef(dailyForm)) {
+      setStatusMessage('Partner can create daily tasks assigned to Youssef only.')
+      return
+    }
+
     await createDailyTask({
       ...dailyForm,
       date: today,
@@ -212,6 +234,13 @@ export default function TasksPage() {
 
   async function toggleDailyTaskStatus(task) {
     if (!canViewDailyTasks) return
+
+    if (!canManageDailyTask(task)) {
+      setStatusMessage('You can only update your own daily tasks.')
+      return
+    }
+
+    setStatusMessage('')
     await toggleDailyTask(task.id, !task.isCompleted)
     await loadDailyTasks()
   }
@@ -232,11 +261,7 @@ export default function TasksPage() {
   }
 
   function canDeleteDailyTask(task) {
-    if (isAdmin) return true
-    if (role !== 'partner') return false
-
-    const assignedTo = String(task?.assignedTo || '').trim().toLowerCase()
-    return assignedTo === YOUSSEF_NAME && task?.locked !== true
+    return canManageDailyTask(task) && task?.locked !== true
   }
 
   async function toggleDailyTaskLock(task) {
@@ -286,7 +311,10 @@ export default function TasksPage() {
           <input name="name" value={form.name} onChange={handleChange} placeholder="Task name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           <div className="grid gap-3 sm:grid-cols-2">
             <select name="assignedTo" value={form.assignedTo} onChange={handleChange} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              {ASSIGNEES.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
+              {(role === 'partner'
+                ? ASSIGNEES.filter((assignee) => String(assignee).trim().toLowerCase() === YOUSSEF_NAME)
+                : ASSIGNEES
+              ).map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
             </select>
             <input name="deadline" type="date" value={form.deadline} onChange={handleChange} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           </div>
@@ -320,7 +348,12 @@ export default function TasksPage() {
                 <p className="mt-1 text-[11px] font-semibold text-slate-500">{task.locked ? 'Locked' : 'Unlocked'}</p>
               </div>
               <div className="flex items-center gap-2">
-                <select value={task.status} onChange={(event) => handleStatusChange(task, event.target.value)} className="rounded border border-slate-200 px-2 py-1 text-xs">
+                <select
+                  value={task.status}
+                  onChange={(event) => handleStatusChange(task, event.target.value)}
+                  disabled={!canManageTask(task)}
+                  className="rounded border border-slate-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   {TASK_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
                 {isAdmin ? (
@@ -388,7 +421,10 @@ export default function TasksPage() {
                 onChange={(event) => setDailyForm((current) => ({ ...current, assignedTo: event.target.value }))}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               >
-                {ASSIGNEES.map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
+                {(role === 'partner'
+                  ? ASSIGNEES.filter((assignee) => String(assignee).trim().toLowerCase() === YOUSSEF_NAME)
+                  : ASSIGNEES
+                ).map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
               </select>
               <button className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7]">Create Daily Task</button>
               <p className="text-xs text-slate-500">Tasks are reset by using a new date key each day. Historical completion remains stored.</p>
@@ -418,7 +454,12 @@ export default function TasksPage() {
                     <div key={task.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 text-sm">
                       <div>
                         <label className="flex items-center gap-2">
-                          <input type="checkbox" checked={Boolean(task.isCompleted)} onChange={() => toggleDailyTaskStatus(task)} />
+                          <input
+                            type="checkbox"
+                            checked={Boolean(task.isCompleted)}
+                            onChange={() => toggleDailyTaskStatus(task)}
+                            disabled={!canManageDailyTask(task)}
+                          />
                           <span className={task.isCompleted ? 'line-through text-slate-400' : 'text-slate-800'}>{task.name}</span>
                         </label>
                         {String(task?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME ? (

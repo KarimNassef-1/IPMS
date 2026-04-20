@@ -15,7 +15,7 @@ import {
 } from '../services/projectService'
 import { getTasks, subscribeTasks } from '../services/taskService'
 import { calculateRecognizedPaidRevenue } from '../utils/calculations'
-import { formatCurrency, formatDate } from '../utils/helpers'
+import { formatCurrency, formatDate, parseMoney } from '../utils/helpers'
 import { serviceAgencyShareValue, serviceContractValue } from '../utils/serviceFinance'
 
 function isPendingInstallment(installment) {
@@ -133,8 +133,8 @@ export default function DashboardPage() {
     const totalRecognizedPaid = financialServices.reduce((sum, item) => sum + item.recognizedPaid, 0)
     const totalPendingShare = financialServices.reduce((sum, item) => sum + item.pendingShare, 0)
 
-    const totalIncome = transactions.reduce((sum, item) => sum + (Number(item.totalAmount) || 0), 0)
-    const totalExpenses = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+    const totalIncome = transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0)
+    const totalExpenses = expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0)
     const cashPosition = totalIncome - totalExpenses
 
     const completedTasks = tasks.filter(
@@ -261,7 +261,7 @@ export default function DashboardPage() {
         if (!date) return false
         return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
       })
-      .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0)
+      .reduce((sum, expense) => sum + parseMoney(expense.amount), 0)
 
     const alerts = []
 
@@ -330,7 +330,7 @@ export default function DashboardPage() {
           source: 'expense',
           projectName: expense.category || 'Expense',
           serviceName: expense.name || 'Expense item',
-          amount: Math.max(Number(expense.amount) || 0, 0),
+          amount: Math.max(parseMoney(expense.amount), 0),
           dueDate: date,
         }
       })
@@ -395,7 +395,7 @@ export default function DashboardPage() {
       title="Dashboard"
       description="Live agency control center powered by real project, service, finance, and task data."
     >
-      <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-sky-50 p-5">
+      <section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-sky-50">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-black text-slate-900">Live KPI Stream</h3>
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -416,7 +416,7 @@ export default function DashboardPage() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {liveCards.map((card) => (
-            <article key={card.title} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+            <article key={card.title} className="ip-stat-card">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{card.title}</p>
               <p className={`mt-2 text-2xl font-black ${card.accent}`}>{card.value}</p>
             </article>
@@ -435,7 +435,7 @@ export default function DashboardPage() {
         {error ? <p className="mt-2 text-sm font-semibold text-rose-700">{error}</p> : null}
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <div className="flex items-end justify-between gap-2">
           <div>
             <h4 className="font-bold text-slate-900">Top Recognized Services</h4>
@@ -474,7 +474,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <div className="flex items-end justify-between gap-2">
           <div>
             <h4 className="font-bold text-slate-900">Project Financial Pulse</h4>
@@ -482,29 +482,29 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full text-xs">
+        <div className="ip-table-wrap mt-4">
+          <table className="ip-table">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
-                <th className="px-2 py-2">Project</th>
-                <th className="px-2 py-2">Status</th>
-                <th className="px-2 py-2">Services</th>
-                <th className="px-2 py-2">Contract</th>
-                <th className="px-2 py-2">Agency Share</th>
-                <th className="px-2 py-2">Recognized</th>
-                <th className="px-2 py-2">Pending</th>
+              <tr>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Services</th>
+                <th>Contract</th>
+                <th>Agency Share</th>
+                <th>Recognized</th>
+                <th>Pending</th>
               </tr>
             </thead>
             <tbody>
               {dashboardData.projectFinancialRows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100 text-slate-700">
-                  <td className="px-2 py-2 font-semibold text-slate-900">{row.projectName}</td>
-                  <td className="px-2 py-2">{row.status}</td>
-                  <td className="px-2 py-2">{row.serviceCount}</td>
-                  <td className="px-2 py-2">{formatCurrency(row.contractValue)}</td>
-                  <td className="px-2 py-2">{formatCurrency(row.agencyShare)}</td>
-                  <td className="px-2 py-2 text-sky-700">{formatCurrency(row.recognizedPaid)}</td>
-                  <td className="px-2 py-2 text-amber-700">{formatCurrency(row.pendingShare)}</td>
+                <tr key={row.id}>
+                  <td className="font-semibold text-slate-900">{row.projectName}</td>
+                  <td>{row.status}</td>
+                  <td>{row.serviceCount}</td>
+                  <td>{formatCurrency(row.contractValue)}</td>
+                  <td>{formatCurrency(row.agencyShare)}</td>
+                  <td className="text-sky-700">{formatCurrency(row.recognizedPaid)}</td>
+                  <td className="text-amber-700">{formatCurrency(row.pendingShare)}</td>
                 </tr>
               ))}
             </tbody>
@@ -512,7 +512,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <h4 className="font-bold text-slate-900">Execution Snapshot</h4>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl bg-slate-50 p-3">
@@ -537,7 +537,7 @@ export default function DashboardPage() {
       </section>
 
       <section className="mt-6 grid gap-4 xl:grid-cols-2">
-        <article className="rounded-3xl border border-slate-200 bg-white p-5">
+        <article className="ip-surface-section">
           <div className="flex items-end justify-between gap-2">
             <div>
               <h4 className="font-bold text-slate-900">Smart Alerts</h4>
@@ -578,7 +578,7 @@ export default function DashboardPage() {
           </div>
         </article>
 
-        <article className="rounded-3xl border border-slate-200 bg-white p-5">
+        <article className="ip-surface-section">
           <div className="flex items-end justify-between gap-2">
             <div>
               <h4 className="font-bold text-slate-900">30-Day Cash Calendar</h4>
@@ -633,7 +633,7 @@ export default function DashboardPage() {
         </article>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+      <section className="ip-surface-section mt-6">
         <h4 className="font-bold text-slate-900">Quick Actions</h4>
         <p className="mt-1 text-xs text-slate-500">Jump into high-impact workflows in one click.</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">

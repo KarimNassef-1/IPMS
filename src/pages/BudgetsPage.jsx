@@ -7,7 +7,7 @@ import {
   calculateDistribution,
   calculateRecognizedPaidRevenue,
 } from '../utils/calculations'
-import { formatCurrency } from '../utils/helpers'
+import { formatCurrency, parseMoney } from '../utils/helpers'
 
 const BUDGET_LABELS = {
   karimSalary: 'Karim Salary',
@@ -122,7 +122,7 @@ export default function BudgetsPage() {
     return expenses.reduce((acc, expense) => {
       const key = resolveBudgetKeyForExpense(expense)
       if (!key) return acc
-      acc[key] = (acc[key] || 0) + (Number(expense.amount) || 0)
+      acc[key] = (acc[key] || 0) + parseMoney(expense.amount)
       return acc
     }, {})
   }, [expenses])

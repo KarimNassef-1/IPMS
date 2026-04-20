@@ -700,8 +700,8 @@ export default function ProjectsPage() {
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <form onSubmit={submitProject} className="space-y-3 rounded-2xl border border-white/30 bg-white/80 p-4">
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
+        <form onSubmit={submitProject} className="space-y-3 rounded-2xl border border-white/35 bg-white/86 p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
           <h4 className="font-bold text-slate-900">{editingProjectId ? 'Edit Project' : 'Create Project'}</h4>
           <input name="clientName" value={projectForm.clientName} onChange={handleProjectInput} placeholder="Client name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           <input name="projectName" value={projectForm.projectName} onChange={handleProjectInput} placeholder="Project name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
@@ -748,7 +748,7 @@ export default function ProjectsPage() {
           </button>
         </form>
 
-        <form onSubmit={submitService} className="space-y-3 rounded-2xl border border-white/30 bg-white/80 p-4">
+        <form onSubmit={submitService} className="space-y-3 rounded-2xl border border-white/35 bg-white/86 p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
           <div className="flex items-center justify-between gap-2">
             <h4 className="font-bold text-slate-900">{editingServiceId ? 'Edit Service' : 'Add Service'}</h4>
             {editingServiceId ? (
@@ -1138,11 +1138,11 @@ export default function ProjectsPage() {
       <div className="mt-6 space-y-4">
         {loading ? <p className="text-sm text-slate-600">Loading projects...</p> : null}
         {projects.map((project) => (
-          <article key={project.id} className="rounded-2xl border border-white/30 bg-white/75 p-4">
+          <article key={project.id} className="rounded-2xl border border-white/35 bg-white/82 p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h4 className="text-lg font-bold text-slate-900">{project.projectName}</h4>
-                <p className="text-sm text-slate-600">{project.clientName} • {project.status} • {project.type}</p>
+                <h4 className="text-base font-bold text-slate-900 sm:text-lg">{project.projectName}</h4>
+                <p className="text-xs text-slate-600 sm:text-sm">{project.clientName} • {project.status} • {project.type}</p>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                   <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
                     Contract: {formatCurrency(revenueBreakdownByProjectId[project.id]?.totalContractValue || 0)}
@@ -1172,7 +1172,7 @@ export default function ProjectsPage() {
                 const serviceBreakdown = getServiceFinancialBreakdown(service)
 
                 return (
-                <div key={service.id} className="rounded-lg border border-slate-200 bg-white p-2 text-sm">
+                <div key={service.id} className="rounded-xl border border-slate-200 bg-white/90 p-2.5 text-sm shadow-[0_8px_20px_-18px_rgba(15,23,42,0.55)]">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-slate-900">{service.serviceName}</p>
                     <div className="flex gap-2">
