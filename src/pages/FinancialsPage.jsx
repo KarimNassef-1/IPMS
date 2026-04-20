@@ -12,6 +12,12 @@ import {
   serviceAgencyShareValue,
   serviceContractValue,
 } from '../utils/serviceFinance'
+import { useAuth } from '../hooks/useAuth'
+import {
+  createAllowedServiceCategorySet,
+  filterProjectsByVisibleServices,
+  filterServicesByAccess,
+} from '../utils/serviceAccess'
 
 const DISTRIBUTION_LABELS = {
   karimSalary: 'Karim Salary',
@@ -21,6 +27,11 @@ const DISTRIBUTION_LABELS = {
 }
 
 export default function FinancialsPage() {
+  const { isAdmin, serviceCategories } = useAuth()
+  const allowedCategorySet = useMemo(
+    () => createAllowedServiceCategorySet(serviceCategories),
+    [serviceCategories],
+  )
   const [services, setServices] = useState([])
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
@@ -29,8 +40,16 @@ export default function FinancialsPage() {
     setLoading(true)
     try {
       const [serviceData, projectData] = await Promise.all([getAllServices(), getProjects()])
-      setServices(serviceData)
-      setProjects(projectData)
+      const scopedServices = filterServicesByAccess(serviceData, {
+        isAdmin,
+        allowedCategorySet,
+      })
+      const scopedProjects = isAdmin
+        ? projectData
+        : filterProjectsByVisibleServices(projectData, scopedServices)
+
+      setServices(scopedServices)
+      setProjects(scopedProjects)
     } finally {
       setLoading(false)
     }
@@ -38,7 +57,7 @@ export default function FinancialsPage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [isAdmin, allowedCategorySet])
 
   const projectNameById = useMemo(() => {
     return projects.reduce((acc, project) => {
@@ -214,6 +233,22 @@ export default function FinancialsPage() {
     (item) => item.mode === 'manual' && Math.abs(item.manualDifference) > 0.0001,
   ).length
 
+  const efficiency = useMemo(() => {
+    const recognizedVsShare = summary.agencyShareTotal
+      ? (summary.recognizedPaidTotal / summary.agencyShareTotal) * 100
+      : 0
+    const pendingVsShare = summary.agencyShareTotal
+      ? (summary.pendingTotal / summary.agencyShareTotal) * 100
+      : 0
+    return {
+      recognizedVsShare,
+      pendingVsShare,
+      avgRecognizedPerService: paidServices.length
+        ? summary.recognizedPaidTotal / paidServices.length
+        : 0,
+    }
+  }, [paidServices.length, summary.agencyShareTotal, summary.pendingTotal, summary.recognizedPaidTotal])
+
   return (
     <ModuleShell
       title="Financial System"
@@ -255,6 +290,21 @@ export default function FinancialsPage() {
         </div>
       </section>
 
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Recognized / Share</p>
+          <p className="mt-1 text-2xl font-black text-emerald-700">{efficiency.recognizedVsShare.toFixed(1)}%</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Pending / Share</p>
+          <p className="mt-1 text-2xl font-black text-amber-700">{efficiency.pendingVsShare.toFixed(1)}%</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Avg Recognized / Service</p>
+          <p className="mt-1 text-2xl font-black text-sky-700">{formatCurrency(efficiency.avgRecognizedPerService)}</p>
+        </div>
+      </section>
+
       <section className="ip-surface-section mt-6">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
@@ -287,7 +337,7 @@ export default function FinancialsPage() {
             <div key={service.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900">
-                  {projectNameById[service.projectId] || 'Unknown project'} - {service.serviceName}
+                  {projectNameById[service.projectId] || 'Unknown project'}
                 </p>
                 <div className="flex items-center gap-2 text-[11px]">
                   {service.includeInFinancialPlanner === false ? (
@@ -299,6 +349,7 @@ export default function FinancialsPage() {
                   )}
                 </div>
               </div>
+              <p className="mt-1 text-xs font-medium text-slate-600">{service.serviceName}</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4 text-xs">
                 <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Contract: <span className="font-semibold">{formatCurrency(service.contractValue)}</span></p>
                 <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Agency Share: <span className="font-semibold">{formatCurrency(service.agencyShareTotal)}</span></p>

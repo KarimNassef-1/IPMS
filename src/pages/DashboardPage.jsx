@@ -17,6 +17,12 @@ import { getTasks, subscribeTasks } from '../services/taskService'
 import { calculateRecognizedPaidRevenue } from '../utils/calculations'
 import { formatCurrency, formatDate, parseMoney } from '../utils/helpers'
 import { serviceAgencyShareValue, serviceContractValue } from '../utils/serviceFinance'
+import { useAuth } from '../hooks/useAuth'
+import {
+  createAllowedServiceCategorySet,
+  filterProjectsByVisibleServices,
+  filterServicesByAccess,
+} from '../utils/serviceAccess'
 
 function isPendingInstallment(installment) {
   return String(installment?.status || '').toLowerCase() !== 'paid'
@@ -30,6 +36,11 @@ function toDateOrNull(rawValue) {
 }
 
 export default function DashboardPage() {
+  const { isAdmin, serviceCategories } = useAuth()
+  const allowedCategorySet = useMemo(
+    () => createAllowedServiceCategorySet(serviceCategories),
+    [serviceCategories],
+  )
   const [transactions, setTransactions] = useState([])
   const [expenses, setExpenses] = useState([])
   const [projects, setProjects] = useState([])
@@ -41,6 +52,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let unsubscribers = []
+    let latestServices = []
+    let latestProjects = []
+
+    const applyProjectScope = (projectItems, scopedServiceItems) => {
+      if (isAdmin) return projectItems
+      return filterProjectsByVisibleServices(projectItems, scopedServiceItems)
+    }
 
     async function initialize() {
       setLoading(true)
@@ -55,10 +73,20 @@ export default function DashboardPage() {
           getTasks(),
         ])
 
+        const scopedServices = filterServicesByAccess(sv, {
+          isAdmin,
+          allowedCategorySet,
+        })
+        const scopedProjects = isAdmin
+          ? pr
+          : filterProjectsByVisibleServices(pr, scopedServices)
+        latestServices = scopedServices
+        latestProjects = pr
+
         setTransactions(tx)
         setExpenses(ex)
-        setProjects(pr)
-        setServices(sv)
+        setProjects(scopedProjects)
+        setServices(scopedServices)
         setTasks(ta)
         setLastUpdated(new Date().toISOString())
 
@@ -76,11 +104,20 @@ export default function DashboardPage() {
             setLastUpdated(new Date().toISOString())
           }, handleStreamError),
           subscribeProjects((items) => {
-            setProjects(items)
+            latestProjects = items
+            const scopedProjects = applyProjectScope(items, latestServices)
+            setProjects(scopedProjects)
             setLastUpdated(new Date().toISOString())
           }, handleStreamError),
           subscribeAllServices((items) => {
-            setServices(items)
+            const scopedServices = filterServicesByAccess(items, {
+              isAdmin,
+              allowedCategorySet,
+            })
+            latestServices = scopedServices
+
+            setServices(scopedServices)
+            setProjects((currentProjects) => applyProjectScope(latestProjects.length ? latestProjects : currentProjects, scopedServices))
             setLastUpdated(new Date().toISOString())
           }, handleStreamError),
           subscribeTasks((items) => {
@@ -102,7 +139,7 @@ export default function DashboardPage() {
         if (typeof unsubscribe === 'function') unsubscribe()
       })
     }
-  }, [])
+  }, [allowedCategorySet, isAdmin])
 
   const dashboardData = useMemo(() => {
     const projectNameById = projects.reduce((acc, project) => {
@@ -354,6 +391,10 @@ export default function DashboardPage() {
       next30Calendar,
       next30Incoming,
       next30Outgoing,
+      highPriorityOpenTasks,
+      overdueInstallmentsCount: overdueInstallments.length,
+      overdueInstallmentsTotal,
+      thisMonthExpenses,
     }
   }, [dashboardData.cashPosition, dashboardData.totalRecognizedPaid, expenses, projects, services, tasks])
 
@@ -390,6 +431,36 @@ export default function DashboardPage() {
     },
   ]
 
+  const todayFocusItems = [
+    {
+      title: 'Overdue Installments',
+      value: String(missionData.overdueInstallmentsCount || 0),
+      caption: formatCurrency(missionData.overdueInstallmentsTotal || 0),
+      tone:
+        (missionData.overdueInstallmentsCount || 0) > 0
+          ? 'text-rose-700 bg-rose-50 border-rose-100'
+          : 'text-emerald-700 bg-emerald-50 border-emerald-100',
+    },
+    {
+      title: 'High Priority Open Tasks',
+      value: String(missionData.highPriorityOpenTasks || 0),
+      caption: 'Need active follow-up',
+      tone:
+        (missionData.highPriorityOpenTasks || 0) > 0
+          ? 'text-amber-700 bg-amber-50 border-amber-100'
+          : 'text-emerald-700 bg-emerald-50 border-emerald-100',
+    },
+    {
+      title: 'This Month Burn',
+      value: formatCurrency(missionData.thisMonthExpenses || 0),
+      caption: `vs recognized ${formatCurrency(dashboardData.totalRecognizedPaid)}`,
+      tone:
+        (missionData.thisMonthExpenses || 0) > dashboardData.totalRecognizedPaid
+          ? 'text-rose-700 bg-rose-50 border-rose-100'
+          : 'text-sky-700 bg-sky-50 border-sky-100',
+    },
+  ]
+
   return (
     <ModuleShell
       title="Dashboard"
@@ -397,7 +468,7 @@ export default function DashboardPage() {
     >
       <section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-sky-50">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-black text-slate-900">Live KPI Stream</h3>
+          <h3 className="text-lg font-black text-slate-900">Executive Snapshot</h3>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-700">
               Active Projects: {dashboardData.activeProjects}
@@ -414,13 +485,28 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {liveCards.map((card) => (
-            <article key={card.title} className="ip-stat-card">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{card.title}</p>
-              <p className={`mt-2 text-2xl font-black ${card.accent}`}>{card.value}</p>
-            </article>
-          ))}
+        <div className="mt-4 grid gap-4 xl:grid-cols-[2fr_1fr]">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {liveCards.map((card) => (
+              <article key={card.title} className="ip-stat-card">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{card.title}</p>
+                <p className={`mt-2 text-2xl font-black ${card.accent}`}>{card.value}</p>
+              </article>
+            ))}
+          </div>
+
+          <aside className="rounded-2xl border border-slate-200 bg-white/90 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Today Focus</p>
+            <div className="mt-2 space-y-2">
+              {todayFocusItems.map((item) => (
+                <div key={item.title} className={`rounded-xl border px-3 py-2 ${item.tone}`}>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider">{item.title}</p>
+                  <p className="mt-1 text-lg font-black">{item.value}</p>
+                  <p className="text-[11px]">{item.caption}</p>
+                </div>
+              ))}
+            </div>
+          </aside>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -649,8 +735,8 @@ export default function DashboardPage() {
           <Link to="/tasks" className="rounded-xl bg-amber-100 px-3 py-2 text-center text-xs font-semibold text-amber-700 hover:bg-amber-200">
             Create Follow-up Task
           </Link>
-          <Link to="/notifications" className="rounded-xl bg-emerald-100 px-3 py-2 text-center text-xs font-semibold text-emerald-700 hover:bg-emerald-200">
-            Check Alerts Inbox
+          <Link to="/team-users" className="rounded-xl bg-emerald-100 px-3 py-2 text-center text-xs font-semibold text-emerald-700 hover:bg-emerald-200">
+            Team Access Setup
           </Link>
         </div>
       </section>

@@ -282,8 +282,12 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
               </NavLink>
 
               {item.children?.length && !isSidebarCollapsed ? (
-                openMenus[item.icon] ? (
-                  <div className="ml-4 mt-1 space-y-1 border-l border-[#8246f6]/20 pl-2">
+                <div
+                  className={`ml-4 overflow-hidden transition-[max-height,opacity,margin] duration-300 ease-out ${
+                    openMenus[item.icon] ? 'mt-1 max-h-40 opacity-100' : 'mt-0 max-h-0 opacity-0'
+                  }`}
+                >
+                  <div className="space-y-1 border-l border-[#8246f6]/20 pl-2 pb-0.5">
                     {item.children.map((child) => (
                       <NavLink
                         key={child.to}
@@ -302,7 +306,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
                       </NavLink>
                     ))}
                   </div>
-                ) : null
+                </div>
               ) : null}
             </div>
           ))}
@@ -386,8 +390,12 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
               </NavLink>
 
               {item.children?.length ? (
-                openMenus[item.icon] ? (
-                  <div className="ml-4 mt-1 space-y-1 border-l border-[#8246f6]/20 pl-2">
+                <div
+                  className={`ml-4 overflow-hidden transition-[max-height,opacity,margin] duration-300 ease-out ${
+                    openMenus[item.icon] ? 'mt-1 max-h-40 opacity-100' : 'mt-0 max-h-0 opacity-0'
+                  }`}
+                >
+                  <div className="space-y-1 border-l border-[#8246f6]/20 pl-2 pb-0.5">
                     {item.children.map((child) => (
                       <NavLink
                         key={child.to}
@@ -407,7 +415,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
                       </NavLink>
                     ))}
                   </div>
-                ) : null
+                </div>
               ) : null}
             </div>
           ))}

@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { ensureFirebaseReady } from "./firebase";
 import { assertRequiredFields } from "../utils/helpers";
+import { normalizeServiceCategory } from "../utils/serviceAccess";
 
 const PROJECTS = "projects";
 const SERVICES = "services";
@@ -53,7 +54,31 @@ function calculateMonthsBetween(startDate, endDate) {
 	return Math.max(totalMonths, 0);
 }
 
+function normalizeWebsiteUrl(value) {
+	const raw = String(value || "").trim();
+	if (!raw) return "";
+	if (/^https?:\/\//i.test(raw)) return raw;
+	return `https://${raw}`;
+}
+
 function normalizeServicePayload(payload) {
+	const serviceCategory = normalizeServiceCategory(payload.serviceCategory);
+	const incomingPaymentStatus = String(payload.paymentStatus || "")
+		.trim()
+		.toLowerCase();
+	const paymentStatus = ["pending", "paid", "completed", "free"].includes(
+		incomingPaymentStatus,
+	)
+		? incomingPaymentStatus
+		: "pending";
+	const shouldKeepWebsiteLink =
+		serviceCategory === "Website Development" && paymentStatus === "completed";
+	const websiteLinkName = shouldKeepWebsiteLink
+		? String(payload.websiteLinkName || "").trim()
+		: "";
+	const websiteLinkUrl = shouldKeepWebsiteLink
+		? normalizeWebsiteUrl(payload.websiteLinkUrl)
+		: "";
 	const chargeType = payload.chargeType === "free" ? "free" : "paid";
 	const billingType =
 		payload.billingType === "monthly"
@@ -94,6 +119,7 @@ function normalizeServicePayload(payload) {
 
 		return {
 			...payload,
+			serviceCategory,
 			chargeType,
 			deliveryType,
 			outsourcePercentage,
@@ -119,6 +145,8 @@ function normalizeServicePayload(payload) {
 			totalContractValue: baseValue,
 			revenue: 0,
 			paymentStatus: "free",
+			websiteLinkName: "",
+			websiteLinkUrl: "",
 			paymentDate: "",
 		};
 	}
@@ -191,6 +219,7 @@ function normalizeServicePayload(payload) {
 
 	return {
 		...payload,
+		serviceCategory,
 		chargeType,
 		deliveryType,
 		outsourcePercentage,
@@ -217,7 +246,9 @@ function normalizeServicePayload(payload) {
 		valueAmount,
 		totalContractValue: valueAmount,
 		revenue: chargedRevenue,
-		paymentStatus: payload.paymentStatus || "pending",
+		paymentStatus,
+		websiteLinkName,
+		websiteLinkUrl,
 		paymentDate: payload.paymentDate || "",
 	};
 }
@@ -273,7 +304,11 @@ export async function deleteProject(id) {
 }
 
 export async function addServiceToProject(payload) {
-	assertRequiredFields(payload, ["projectId", "serviceName"]);
+	assertRequiredFields(payload, [
+		"projectId",
+		"serviceName",
+		"serviceCategory",
+	]);
 	const firestore = ensureFirebaseReady();
 
 	const normalizedPayload = normalizeServicePayload(payload);

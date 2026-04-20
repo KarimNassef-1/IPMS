@@ -11,6 +11,23 @@ export const PROJECT_STATUSES = [
 
 export const PROJECT_TYPES = ["One-time", "Monthly"];
 
+export const SERVICE_CATEGORIES = [
+	"Website Development",
+	"System Development",
+	"System& Backend Integration",
+	"Graphic Design",
+	"AI Automation",
+	"App Development",
+	"AI Photoshoot",
+];
+
+export const WEBSITE_DEVELOPMENT_TRACKS = [
+	"Custom Development",
+	"WordPress",
+	"Shopify",
+	"Webflow",
+];
+
 export const TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 
 export const TASK_STATUSES = [

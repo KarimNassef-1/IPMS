@@ -32,6 +32,21 @@ export default function ExpensesPage() {
     [expenses],
   )
 
+  const averageExpense = useMemo(
+    () => (expenses.length ? totalExpenses / expenses.length : 0),
+    [expenses.length, totalExpenses],
+  )
+
+  const topCategory = useMemo(() => {
+    const byCategory = expenses.reduce((acc, item) => {
+      const category = item.category || 'Uncategorized'
+      acc[category] = (acc[category] || 0) + parseMoney(item.amount)
+      return acc
+    }, {})
+
+    return Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0] || null
+  }, [expenses])
+
   async function submitExpense(event) {
     event.preventDefault()
     await addExpense({ ...form, amount: Number(form.amount) || 0 })
@@ -73,6 +88,26 @@ export default function ExpensesPage() {
       title="Expenses"
       description="Record agency spending and deduct amounts from allocated balances."
     >
+      <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Total Expenses</p>
+          <p className="mt-1 text-2xl font-black text-rose-700">{formatCurrency(totalExpenses)}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Records</p>
+          <p className="mt-1 text-2xl font-black text-slate-900">{expenses.length}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Average Expense</p>
+          <p className="mt-1 text-2xl font-black text-sky-700">{formatCurrency(averageExpense)}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Top Category</p>
+          <p className="mt-1 text-sm font-black text-violet-700">{topCategory ? topCategory[0] : '-'}</p>
+          <p className="text-xs text-slate-500">{topCategory ? formatCurrency(topCategory[1]) : ''}</p>
+        </div>
+      </section>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <form onSubmit={submitExpense} className="space-y-3 rounded-2xl border border-white/30 bg-white/80 p-4">
           <h4 className="font-bold text-slate-900">Add Expense</h4>
@@ -89,15 +124,24 @@ export default function ExpensesPage() {
           </div>
           <textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes" className="h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           <button className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7]">Save Expense</button>
-          <p className="text-xs text-slate-500">Total expenses: {formatCurrency(totalExpenses)}</p>
+          <p className="text-xs text-slate-500">Tracked total: {formatCurrency(totalExpenses)}</p>
         </form>
 
         <div className="space-y-2 rounded-2xl border border-white/30 bg-white/80 p-4">
           <h4 className="font-bold text-slate-900">Expense Records</h4>
           {expenses.map((expense) => (
-            <div key={expense.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2 text-sm">
-              <p>{expense.name} • {expense.category} • {formatCurrency(expense.amount)}</p>
-              <button type="button" onClick={() => removeExpense(expense.id)} className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Delete</button>
+            <div key={expense.id} className="rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold text-slate-900">{expense.name}</p>
+                <button type="button" onClick={() => removeExpense(expense.id)} className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Delete</button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{expense.category}</span>
+                <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">{formatCurrency(expense.amount)}</span>
+                <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">{expense.date || 'No date'}</span>
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">{expense.paidBy || 'Unknown payer'}</span>
+              </div>
+              {expense.notes ? <p className="mt-1 text-xs text-slate-600">{expense.notes}</p> : null}
             </div>
           ))}
           {expenses.length === 0 ? <p className="text-sm text-slate-600">No expenses yet.</p> : null}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ModuleShell from '../components/layout/ModuleShell'
 import {
   createManagedAuthUser,
@@ -16,7 +16,10 @@ import {
   APP_ROLES,
   DEFAULT_ROLE_PERMISSIONS,
   PERMISSION_LABELS,
+  SERVICE_CATEGORIES,
+  WEBSITE_DEVELOPMENT_TRACKS,
 } from '../utils/constants'
+import { useToast } from '../hooks/useToast'
 
 const EMPTY_USER_FORM = {
   name: '',
@@ -30,10 +33,7 @@ const EMPTY_USER_FORM = {
 
 const EMPTY_TEAM_FORM = {
   name: '',
-  role: '',
-  pictureUrl: '',
-  serviceType: '',
-  leadName: '',
+  serviceCategories: [SERVICE_CATEGORIES[0]],
   description: '',
   memberIds: [],
   memberProfiles: [],
@@ -42,6 +42,7 @@ const EMPTY_TEAM_FORM = {
 const EMPTY_TEAM_MEMBER_DRAFT = {
   name: '',
   technicalRole: '',
+  websiteTracks: [],
   pictureUrl: '',
   linkedUserId: '',
 }
@@ -70,6 +71,7 @@ function fileToDataUrl(file) {
 }
 
 export default function TeamUsersPage() {
+  const toast = useToast()
   const [users, setUsers] = useState([])
   const [teams, setTeams] = useState([])
   const [rolePermissionMap, setRolePermissionMap] = useState(DEFAULT_ROLE_PERMISSIONS)
@@ -82,6 +84,35 @@ export default function TeamUsersPage() {
   const [editingTeamId, setEditingTeamId] = useState('')
   const [teamForm, setTeamForm] = useState(EMPTY_TEAM_FORM)
   const [teamMemberDraft, setTeamMemberDraft] = useState(EMPTY_TEAM_MEMBER_DRAFT)
+  const [editingDraftMemberId, setEditingDraftMemberId] = useState('')
+  const userFormSectionRef = useRef(null)
+  const teamFormSectionRef = useRef(null)
+  const [userSearchTerm, setUserSearchTerm] = useState('')
+  const [teamSearchTerm, setTeamSearchTerm] = useState('')
+  const [teamServiceFilter, setTeamServiceFilter] = useState('all')
+
+  useEffect(() => {
+    if (!status) return
+
+    const normalized = status.toLowerCase()
+    if (
+      normalized.includes('failed') ||
+      normalized.includes('unable') ||
+      normalized.includes('denied') ||
+      normalized.includes('required') ||
+      normalized.includes('invalid')
+    ) {
+      toast.error(status)
+      return
+    }
+
+    if (normalized.includes('editing')) {
+      toast.info(status)
+      return
+    }
+
+    toast.success(status)
+  }, [status, toast])
 
   useEffect(() => {
     setLoading(true)
@@ -115,6 +146,121 @@ export default function TeamUsersPage() {
     }, {}),
     [users],
   )
+
+  const teamNameById = useMemo(
+    () => teams.reduce((acc, item) => {
+      acc[item.id] = item.name || 'Team'
+      return acc
+    }, {}),
+    [teams],
+  )
+
+  const filteredUsers = useMemo(() => {
+    const query = String(userSearchTerm || '').trim().toLowerCase()
+    const source = Array.isArray(users) ? users : []
+
+    return source
+      .filter((item) => {
+        if (!query) return true
+        const haystack = [
+          item.name,
+          item.email,
+          item.role,
+          item.title,
+          ...(Array.isArray(item.teamIds) ? item.teamIds.map((teamId) => teamNameById[teamId] || teamId) : []),
+        ]
+          .map((value) => String(value || '').toLowerCase())
+          .join(' ')
+        return haystack.includes(query)
+      })
+      .sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || '')))
+  }, [teamNameById, userSearchTerm, users])
+
+  const filteredTeams = useMemo(() => {
+    const query = String(teamSearchTerm || '').trim().toLowerCase()
+    const source = Array.isArray(teams) ? teams : []
+
+    return source
+      .filter((team) => {
+        const categories = Array.isArray(team.serviceCategories)
+          ? team.serviceCategories
+          : [team.serviceCategory || team.serviceType].filter(Boolean)
+
+        if (teamServiceFilter !== 'all' && !categories.includes(teamServiceFilter)) return false
+
+        if (!query) return true
+        const memberNames = Array.isArray(team.memberProfiles)
+          ? team.memberProfiles.map((member) => member?.name || '')
+          : (team.memberIds || []).map((id) => userNameById[id] || id)
+
+        const haystack = [team.name, team.description, ...categories, ...memberNames]
+          .map((value) => String(value || '').toLowerCase())
+          .join(' ')
+
+        return haystack.includes(query)
+      })
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  }, [teamSearchTerm, teamServiceFilter, teams, userNameById])
+
+  const existingTeamMemberOptions = useMemo(() => {
+    const map = new Map()
+
+    teams.forEach((team) => {
+      ;(Array.isArray(team.memberProfiles) ? team.memberProfiles : []).forEach((member) => {
+        const name = String(member?.name || '').trim()
+        if (!name) return
+
+        const technicalRole = String(member?.technicalRole || '').trim()
+        const websiteTracks = Array.from(new Set((Array.isArray(member?.websiteTracks) ? member.websiteTracks : []).map((track) => String(track).trim()).filter(Boolean)))
+        const pictureUrl = String(member?.pictureUrl || '').trim()
+        const userId = String(member?.userId || '').trim()
+        const key = [name.toLowerCase(), technicalRole.toLowerCase(), websiteTracks.join(','), pictureUrl, userId].join('|')
+
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            name,
+            technicalRole,
+            websiteTracks,
+            pictureUrl,
+            userId,
+            teamName: team.name || 'Team',
+          })
+        }
+      })
+    })
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [teams])
+
+  const isWebsiteDevelopmentTeam = useMemo(
+    () => (teamForm.serviceCategories || []).includes('Website Development'),
+    [teamForm.serviceCategories],
+  )
+
+  useEffect(() => {
+    if (isWebsiteDevelopmentTeam) return
+
+    setTeamMemberDraft((current) => {
+      if (!Array.isArray(current.websiteTracks) || current.websiteTracks.length === 0) return current
+      return { ...current, websiteTracks: [] }
+    })
+
+    setTeamForm((current) => {
+      const currentMembers = Array.isArray(current.memberProfiles) ? current.memberProfiles : []
+      let hasTrackSelections = false
+      const sanitizedMembers = currentMembers.map((member) => {
+        if (Array.isArray(member.websiteTracks) && member.websiteTracks.length) {
+          hasTrackSelections = true
+          return { ...member, websiteTracks: [] }
+        }
+        return member
+      })
+
+      if (!hasTrackSelections) return current
+      return { ...current, memberProfiles: sanitizedMembers }
+    })
+  }, [isWebsiteDevelopmentTeam])
 
   async function onSaveUser(event) {
     event.preventDefault()
@@ -161,11 +307,16 @@ export default function TeamUsersPage() {
     setStatus('')
 
     try {
+      const normalizedServiceCategories = Array.isArray(teamForm.serviceCategories) && teamForm.serviceCategories.length
+        ? teamForm.serviceCategories
+        : [SERVICE_CATEGORIES[0]]
+
       const normalizedMembers = (Array.isArray(teamForm.memberProfiles) ? teamForm.memberProfiles : [])
         .map((member) => ({
           id: member.id || createTeamMemberId(),
           name: String(member.name || '').trim(),
           technicalRole: String(member.technicalRole || '').trim(),
+          websiteTracks: Array.from(new Set((Array.isArray(member.websiteTracks) ? member.websiteTracks : []).map((track) => String(track).trim()).filter(Boolean))),
           pictureUrl: String(member.pictureUrl || '').trim(),
           userId: member.userId || '',
           isUser: Boolean(member.userId),
@@ -174,6 +325,7 @@ export default function TeamUsersPage() {
 
       await upsertTeam(editingTeamId, {
         ...teamForm,
+        serviceCategories: normalizedServiceCategories,
         memberProfiles: normalizedMembers,
         memberIds: normalizedMembers.map((member) => member.userId).filter(Boolean),
       })
@@ -182,6 +334,7 @@ export default function TeamUsersPage() {
       setEditingTeamId('')
       setTeamForm(EMPTY_TEAM_FORM)
       setTeamMemberDraft(EMPTY_TEAM_MEMBER_DRAFT)
+      setEditingDraftMemberId('')
     } catch (error) {
       setStatus(error?.message || 'Failed to save team.')
     }
@@ -196,23 +349,32 @@ export default function TeamUsersPage() {
 
     setStatus('')
     const linkedUser = users.find((item) => item.id === teamMemberDraft.linkedUserId)
+    const nextMemberPayload = {
+      id: editingDraftMemberId || createTeamMemberId(),
+      name,
+      technicalRole: String(teamMemberDraft.technicalRole || '').trim(),
+      websiteTracks: isWebsiteDevelopmentTeam
+        ? Array.from(new Set((Array.isArray(teamMemberDraft.websiteTracks) ? teamMemberDraft.websiteTracks : []).map((track) => String(track).trim()).filter(Boolean)))
+        : [],
+      pictureUrl: String(teamMemberDraft.pictureUrl || '').trim(),
+      userId: linkedUser?.id || '',
+      isUser: Boolean(linkedUser?.id),
+    }
 
     setTeamForm((current) => ({
       ...current,
-      memberProfiles: [
-        ...(Array.isArray(current.memberProfiles) ? current.memberProfiles : []),
-        {
-          id: createTeamMemberId(),
-          name,
-          technicalRole: String(teamMemberDraft.technicalRole || '').trim(),
-          pictureUrl: String(teamMemberDraft.pictureUrl || '').trim(),
-          userId: linkedUser?.id || '',
-          isUser: Boolean(linkedUser?.id),
-        },
-      ],
+      memberProfiles: editingDraftMemberId
+        ? (Array.isArray(current.memberProfiles) ? current.memberProfiles : []).map((member) =>
+            member.id === editingDraftMemberId ? nextMemberPayload : member,
+          )
+        : [
+            ...(Array.isArray(current.memberProfiles) ? current.memberProfiles : []),
+            nextMemberPayload,
+          ],
     }))
 
     setTeamMemberDraft(EMPTY_TEAM_MEMBER_DRAFT)
+    setEditingDraftMemberId('')
   }
 
   function removeDraftTeamMember(memberId) {
@@ -220,6 +382,32 @@ export default function TeamUsersPage() {
       ...current,
       memberProfiles: (Array.isArray(current.memberProfiles) ? current.memberProfiles : []).filter((item) => item.id !== memberId),
     }))
+
+    if (editingDraftMemberId === memberId) {
+      setEditingDraftMemberId('')
+      setTeamMemberDraft(EMPTY_TEAM_MEMBER_DRAFT)
+    }
+  }
+
+  function startEditDraftTeamMember(member) {
+    setEditingDraftMemberId(member.id)
+    setTeamMemberDraft({
+      name: member.name || '',
+      technicalRole: member.technicalRole || '',
+      websiteTracks: Array.isArray(member.websiteTracks) ? member.websiteTracks : [],
+      pictureUrl: member.pictureUrl || '',
+      linkedUserId: member.userId || '',
+    })
+    setStatus('Editing selected member. Update fields then click Update Member.')
+    requestAnimationFrame(() => {
+      teamFormSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  function cancelDraftMemberEdit() {
+    setEditingDraftMemberId('')
+    setTeamMemberDraft(EMPTY_TEAM_MEMBER_DRAFT)
+    setStatus('')
   }
 
   async function onTeamMemberPhotoFileChange(event) {
@@ -289,9 +477,24 @@ export default function TeamUsersPage() {
       title="Team & Users"
       description="Manage users, assign roles, configure role access, and organize service teams."
     >
-      {status ? (
-        <p className="mb-4 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700">{status}</p>
-      ) : null}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">System Users</p>
+          <p className="mt-1 text-2xl font-black text-slate-900">{users.length}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Teams</p>
+          <p className="mt-1 text-2xl font-black text-violet-700">{teams.length}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Roles Configured</p>
+          <p className="mt-1 text-2xl font-black text-sky-700">{APP_ROLES.length}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Service Categories</p>
+          <p className="mt-1 text-2xl font-black text-emerald-700">{SERVICE_CATEGORIES.length}</p>
+        </div>
+      </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5">
         <h4 className="font-bold text-slate-900">Role Access Matrix</h4>
@@ -331,7 +534,7 @@ export default function TeamUsersPage() {
       </section>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-2">
-        <article className="rounded-3xl border border-slate-200 bg-white p-5">
+        <article ref={userFormSectionRef} className="rounded-3xl border border-slate-200 bg-white p-5">
           <h4 className="font-bold text-slate-900">Users</h4>
           <p className="mt-1 text-xs text-slate-500">Create user records, assign role, title, team membership, and profile picture.</p>
 
@@ -434,54 +637,90 @@ export default function TeamUsersPage() {
             </div>
           </form>
 
-          <div className="mt-4 space-y-2">
-            {users.map((item) => (
-              <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-900">{item.name || item.email || 'User'}</p>
-                  <span className="rounded-full bg-[#f0e9ff] px-2 py-0.5 text-[11px] font-semibold text-[#6f39e7]">{item.role || 'viewer'}</span>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">User Directory</p>
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                {filteredUsers.length}/{users.length}
+              </span>
+            </div>
+            <input
+              value={userSearchTerm}
+              onChange={(event) => setUserSearchTerm(event.target.value)}
+              placeholder="Search users by name, email, role, title, or team"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            />
+
+            <div className="mt-3 space-y-2">
+              {filteredUsers.map((item) => (
+                <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f0e9ff] text-[11px] font-bold text-[#6f39e7]">
+                        {initialsFromName(item.name || item.email)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">{item.name || item.email || 'User'}</p>
+                        <p className="truncate text-xs text-slate-500">{item.email || '-'}</p>
+                        {item.title ? <p className="truncate text-xs text-slate-600">{item.title}</p> : null}
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-[#f0e9ff] px-2 py-0.5 text-[11px] font-semibold text-[#6f39e7]">{item.role || 'viewer'}</span>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(item.teamIds || []).map((teamId) => (
+                      <span key={`user-team-${item.id}-${teamId}`} className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                        {teamNameById[teamId] || teamId}
+                      </span>
+                    ))}
+                    {!(item.teamIds || []).length ? <span className="text-[11px] text-slate-500">No teams assigned</span> : null}
+                  </div>
+
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingUserId(item.id)
+                        setUserForm({
+                          name: item.name || '',
+                          email: item.email || '',
+                          password: '',
+                          role: item.role || 'viewer',
+                          photoURL: item.photoURL || '',
+                          title: item.title || '',
+                          teamIds: Array.isArray(item.teamIds) ? item.teamIds : [],
+                        })
+                        requestAnimationFrame(() => {
+                          userFormSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        })
+                      }}
+                      className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteUser(item.id)}
+                      className="rounded-lg bg-rose-100 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-200"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-500">{item.email || '-'}</p>
-                <p className="mt-1 text-xs text-slate-600">Teams: {(item.teamIds || []).map((teamId) => teams.find((team) => team.id === teamId)?.name || teamId).join(', ') || '-'}</p>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingUserId(item.id)
-                      setUserForm({
-                        name: item.name || '',
-                        email: item.email || '',
-                        password: '',
-                        role: item.role || 'viewer',
-                        photoURL: item.photoURL || '',
-                        title: item.title || '',
-                        teamIds: Array.isArray(item.teamIds) ? item.teamIds : [],
-                      })
-                    }}
-                    className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteUser(item.id)}
-                    className="rounded-lg bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-200"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-            {loading && !users.length ? <p className="text-sm text-slate-500">Loading users...</p> : null}
+              ))}
+              {!loading && !filteredUsers.length ? <p className="text-sm text-slate-500">No users match this search.</p> : null}
+              {loading && !users.length ? <p className="text-sm text-slate-500">Loading users...</p> : null}
+            </div>
           </div>
         </article>
 
-        <article className="rounded-3xl border border-slate-200 bg-white p-5">
+        <article ref={teamFormSectionRef} className="rounded-3xl border border-slate-200 bg-white p-5">
           <h4 className="font-bold text-slate-900">Teams</h4>
-          <p className="mt-1 text-xs text-slate-500">Create teams with image, service focus, lead, members, and access mapping.</p>
+          <p className="mt-1 text-xs text-slate-500">Create teams with responsible services, members, and access mapping.</p>
 
           <form onSubmit={onSaveTeam} className="mt-4 space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-1">
               <input
                 value={teamForm.name}
                 onChange={(event) => setTeamForm((current) => ({ ...current, name: event.target.value }))}
@@ -489,36 +728,34 @@ export default function TeamUsersPage() {
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 required
               />
-              <input
-                value={teamForm.role}
-                onChange={(event) => setTeamForm((current) => ({ ...current, role: event.target.value }))}
-                placeholder="Team role (e.g. Delivery Squad)"
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <input
-                value={teamForm.serviceType}
-                onChange={(event) => setTeamForm((current) => ({ ...current, serviceType: event.target.value }))}
-                placeholder="Service team type (e.g. Branding)"
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
-              <input
-                value={teamForm.leadName}
-                onChange={(event) => setTeamForm((current) => ({ ...current, leadName: event.target.value }))}
-                placeholder="Team lead name"
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <input
-                value={teamForm.pictureUrl}
-                onChange={(event) => setTeamForm((current) => ({ ...current, pictureUrl: event.target.value }))}
-                placeholder="Team picture URL"
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                <p className="mb-2 text-xs font-semibold text-slate-600">Service categories</p>
+                <div className="grid gap-1">
+                  {SERVICE_CATEGORIES.map((category) => {
+                    const checked = teamForm.serviceCategories.includes(category)
+                    return (
+                      <label key={category} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setTeamForm((current) => {
+                              const next = new Set(current.serviceCategories || [])
+                              if (next.has(category)) next.delete(category)
+                              else next.add(category)
+                              return { ...current, serviceCategories: Array.from(next) }
+                            })
+                          }}
+                        />
+                        {category}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
 
             <textarea
@@ -570,6 +807,34 @@ export default function TeamUsersPage() {
               </div>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <select
+                  value=""
+                  onChange={(event) => {
+                    const selectedKey = event.target.value
+                    const selectedMember = existingTeamMemberOptions.find((item) => item.key === selectedKey)
+                    if (!selectedMember) return
+
+                    setTeamMemberDraft((current) => ({
+                      ...current,
+                      name: selectedMember.name,
+                      technicalRole: selectedMember.technicalRole,
+                      websiteTracks: selectedMember.websiteTracks || [],
+                      pictureUrl: selectedMember.pictureUrl,
+                      linkedUserId: selectedMember.userId,
+                    }))
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Choose from existing team members</option>
+                  {existingTeamMemberOptions.map((member) => (
+                    <option key={`existing-member-${member.key}`} value={member.key}>
+                      {member.name}
+                      {member.technicalRole ? ` • ${member.technicalRole}` : ''}
+                      {member.websiteTracks?.length ? ` • ${member.websiteTracks.join(', ')}` : ''}
+                      {member.teamName ? ` • ${member.teamName}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <select
                   value={teamMemberDraft.linkedUserId}
                   onChange={(event) => {
                     const selectedId = event.target.value
@@ -584,7 +849,7 @@ export default function TeamUsersPage() {
                   }}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Not a system user</option>
+                  <option value="">Choose from system users</option>
                   {users.map((item) => (
                     <option key={`team-member-user-${item.id}`} value={item.id}>
                       {item.name || item.email || item.id}
@@ -592,14 +857,54 @@ export default function TeamUsersPage() {
                   ))}
                 </select>
               </div>
+
+              {isWebsiteDevelopmentTeam ? (
+                <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2">
+                  <p className="text-xs font-semibold text-indigo-700">Website Development Tracks (multi-select)</p>
+                  <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                    {WEBSITE_DEVELOPMENT_TRACKS.map((track) => {
+                      const checked = (teamMemberDraft.websiteTracks || []).includes(track)
+                      return (
+                        <label key={`track-${track}`} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-xs text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setTeamMemberDraft((current) => {
+                                const next = new Set(current.websiteTracks || [])
+                                if (next.has(track)) next.delete(track)
+                                else next.add(track)
+                                return { ...current, websiteTracks: Array.from(next) }
+                              })
+                            }}
+                          />
+                          {track}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={addTeamMemberToDraft}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
-                >
-                  Add Member
-                </button>
+                <div className="flex gap-2">
+                  {editingDraftMemberId ? (
+                    <button
+                      type="button"
+                      onClick={cancelDraftMemberEdit}
+                      className="rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-300"
+                    >
+                      Cancel Member Edit
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={addTeamMemberToDraft}
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                  >
+                    {editingDraftMemberId ? 'Update Member' : 'Add Member'}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -624,22 +929,34 @@ export default function TeamUsersPage() {
                         {member.technicalRole || 'No role'}
                         {member.userId ? ' • linked user' : ' • documentation only'}
                       </p>
+                      {isWebsiteDevelopmentTeam && Array.isArray(member.websiteTracks) && member.websiteTracks.length ? (
+                        <p className="truncate text-[11px] text-indigo-700">Tracks: {member.websiteTracks.join(', ')}</p>
+                      ) : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeDraftTeamMember(member.id)}
-                    className="rounded-lg bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-200"
-                  >
-                    Remove
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => startEditDraftTeamMember(member)}
+                      className="rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-200"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeDraftTeamMember(member.id)}
+                      className="rounded-lg bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-200"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
               {!teamForm.memberProfiles?.length ? <p className="text-xs text-slate-500">No members added yet.</p> : null}
             </div>
 
             <div className="flex gap-2">
-              <button className="rounded-xl bg-[#8246f6] px-3 py-2 text-xs font-semibold text-white hover:bg-[#6f39e7]">
+              <button type="submit" className="rounded-xl bg-[#8246f6] px-3 py-2 text-xs font-semibold text-white hover:bg-[#6f39e7]">
                 {editingTeamId ? 'Update Team' : 'Add Team'}
               </button>
               {editingTeamId ? (
@@ -649,6 +966,7 @@ export default function TeamUsersPage() {
                     setEditingTeamId('')
                     setTeamForm(EMPTY_TEAM_FORM)
                     setTeamMemberDraft(EMPTY_TEAM_MEMBER_DRAFT)
+                    setEditingDraftMemberId('')
                   }}
                   className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
                 >
@@ -658,27 +976,100 @@ export default function TeamUsersPage() {
             </div>
           </form>
 
-          <div className="mt-4 space-y-2">
-            {teams.map((team) => (
-              <div key={team.id} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-900">{team.name || 'Team'}</p>
-                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">{team.serviceType || 'General'}</span>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">Team Directory</p>
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                {filteredTeams.length}/{teams.length}
+              </span>
+            </div>
+
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <input
+                value={teamSearchTerm}
+                onChange={(event) => setTeamSearchTerm(event.target.value)}
+                placeholder="Search teams by name, service, or member"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <select
+                value={teamServiceFilter}
+                onChange={(event) => setTeamServiceFilter(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="all">All service categories</option>
+                {SERVICE_CATEGORIES.map((category) => (
+                  <option key={`filter-${category}`} value={category}>{category}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-3 grid gap-3">
+            {filteredTeams.map((team) => (
+              <div key={team.id} className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-900">{team.name || 'Team'}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{team.description || 'No description added yet.'}</p>
+                  </div>
+                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                    {(team.serviceCategories || []).length
+                      ? `${team.serviceCategories.length} Services`
+                      : team.serviceCategory || team.serviceType || 'General'}
+                  </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">Role: {team.role || '-'}</p>
-                <p className="mt-1 text-xs text-slate-500">Lead: {team.leadName || '-'}</p>
-                <p className="mt-1 text-xs text-slate-600">
-                  Members:{' '}
-                  {(team.memberProfiles || [])
-                    .map((member) => `${member.name || 'Member'}${member.technicalRole ? ` (${member.technicalRole})` : ''}`)
-                    .join(', ') ||
-                    (team.memberIds || []).map((id) => userNameById[id] || id).join(', ') ||
-                    '-'}
-                </p>
+
+                {(team.serviceCategories || []).length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(team.serviceCategories || []).map((category) => (
+                      <span key={`${team.id}-${category}`} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                        {category}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500">Members</p>
+                    <p className="text-sm font-bold text-slate-900">{(team.memberProfiles || []).length || (team.memberIds || []).length || 0}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500">Linked Users</p>
+                    <p className="text-sm font-bold text-sky-700">{(team.memberProfiles || []).filter((member) => member.userId).length}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500">Services</p>
+                    <p className="text-sm font-bold text-violet-700">{(team.serviceCategories || []).length || 1}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Members</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                      {(team.memberProfiles || []).length || (team.memberIds || []).length || 0}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-600">
+                    {(team.memberProfiles || [])
+                      .map((member) => {
+                        const teamHasWebsiteDevelopment = (team.serviceCategories || []).includes('Website Development')
+                        const trackSuffix = teamHasWebsiteDevelopment && Array.isArray(member.websiteTracks) && member.websiteTracks.length
+                          ? ` [${member.websiteTracks.join(', ')}]`
+                          : ''
+                        return `${member.name || 'Member'}${member.technicalRole ? ` (${member.technicalRole})` : ''}${trackSuffix}`
+                      })
+                      .join(', ') ||
+                      (team.memberIds || []).map((id) => userNameById[id] || id).join(', ') ||
+                      '-'}
+                  </p>
+                </div>
+
                 {(team.memberProfiles || []).length ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     {(team.memberProfiles || []).map((member) => (
-                      <div key={`preview-${team.id}-${member.id}`} className="flex items-center gap-2 rounded-full bg-white px-2 py-1">
+                      <div key={`preview-${team.id}-${member.id}`} className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1">
                         {member.pictureUrl ? (
                           <img
                             src={member.pictureUrl}
@@ -695,8 +1086,8 @@ export default function TeamUsersPage() {
                     ))}
                   </div>
                 ) : null}
-                {team.description ? <p className="mt-1 text-xs text-slate-600">{team.description}</p> : null}
-                <div className="mt-2 flex gap-2">
+
+                <div className="mt-3 flex gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -714,30 +1105,39 @@ export default function TeamUsersPage() {
                       setEditingTeamId(team.id)
                       setTeamForm({
                         name: team.name || '',
-                        role: team.role || '',
-                        pictureUrl: team.pictureUrl || '',
-                        serviceType: team.serviceType || '',
-                        leadName: team.leadName || '',
+                        serviceCategories: Array.isArray(team.serviceCategories)
+                          ? team.serviceCategories
+                          : [team.serviceCategory || team.serviceType || SERVICE_CATEGORIES[0]].filter(Boolean),
                         description: team.description || '',
                         memberIds: Array.isArray(team.memberIds) ? team.memberIds : [],
-                        memberProfiles: normalizedMemberProfiles,
+                        memberProfiles: normalizedMemberProfiles.map((member) => ({
+                          ...member,
+                          websiteTracks: Array.isArray(member.websiteTracks) ? member.websiteTracks : [],
+                        })),
                       })
                       setTeamMemberDraft(EMPTY_TEAM_MEMBER_DRAFT)
+                      setEditingDraftMemberId('')
+                      requestAnimationFrame(() => {
+                        teamFormSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      })
                     }}
-                    className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
                   >
                     Edit
                   </button>
                   <button
                     type="button"
                     onClick={() => onDeleteTeam(team.id)}
-                    className="rounded-lg bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-200"
+                    className="rounded-lg bg-rose-100 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-200"
                   >
                     Delete
                   </button>
                 </div>
               </div>
             ))}
+            </div>
+            {!loading && !teams.length ? <p className="mt-3 text-sm text-slate-500">No teams yet. Create your first team above.</p> : null}
+            {!loading && teams.length > 0 && !filteredTeams.length ? <p className="mt-3 text-sm text-slate-500">No teams match the current filters.</p> : null}
             {loading && !teams.length ? <p className="text-sm text-slate-500">Loading teams...</p> : null}
           </div>
         </article>

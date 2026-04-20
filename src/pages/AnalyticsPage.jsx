@@ -34,6 +34,12 @@ import { getTasks, subscribeTasks } from "../services/taskService";
 import { calculateRecognizedPaidRevenue, groupByMonth } from "../utils/calculations";
 import { formatCurrency, parseMoney } from "../utils/helpers";
 import { serviceAgencyShareValue } from "../utils/serviceFinance";
+import { useAuth } from "../hooks/useAuth";
+import {
+	createAllowedServiceCategorySet,
+	filterProjectsByVisibleServices,
+	filterServicesByAccess,
+} from "../utils/serviceAccess";
 
 const PIE_COLORS = ["#8246f6", "#a989f8", "#d2c2ff", "#5f2fe2", "#7b5eea", "#b7a2fa"];
 const TYPE_COLORS = ["#8246f6", "#22c55e"];
@@ -105,6 +111,11 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export default function AnalyticsPage() {
+	const { isAdmin, serviceCategories } = useAuth();
+	const allowedCategorySet = useMemo(
+		() => createAllowedServiceCategorySet(serviceCategories),
+		[serviceCategories],
+	);
 	const [transactions, setTransactions] = useState([]);
 	const [expenses, setExpenses] = useState([]);
 	const [projects, setProjects] = useState([]);
@@ -115,6 +126,13 @@ export default function AnalyticsPage() {
 
 	useEffect(() => {
 		let unsubscribers = [];
+		let latestServices = [];
+		let latestProjects = [];
+
+		const applyProjectScope = (projectItems, scopedServiceItems) => {
+			if (isAdmin) return projectItems;
+			return filterProjectsByVisibleServices(projectItems, scopedServiceItems);
+		};
 
 		async function initialize() {
 			setLoading(true);
@@ -129,10 +147,18 @@ export default function AnalyticsPage() {
 					getTasks(),
 				]);
 
+				const scopedServices = filterServicesByAccess(se, {
+					isAdmin,
+					allowedCategorySet,
+				});
+				const scopedProjects = applyProjectScope(pr, scopedServices);
+				latestServices = scopedServices;
+				latestProjects = pr;
+
 				setTransactions(tx);
 				setExpenses(ex);
-				setProjects(pr);
-				setServices(se);
+				setProjects(scopedProjects);
+				setServices(scopedServices);
 				setTasks(ta);
 
 				const onStreamError = (streamError) => {
@@ -142,8 +168,19 @@ export default function AnalyticsPage() {
 				unsubscribers = [
 					subscribeTransactions(setTransactions, onStreamError),
 					subscribeExpenses(setExpenses, onStreamError),
-					subscribeProjects(setProjects, onStreamError),
-					subscribeAllServices(setServices, onStreamError),
+					subscribeProjects((items) => {
+						latestProjects = items;
+						setProjects(applyProjectScope(items, latestServices));
+					}, onStreamError),
+					subscribeAllServices((items) => {
+						const scopedServices = filterServicesByAccess(items, {
+							isAdmin,
+							allowedCategorySet,
+						});
+						latestServices = scopedServices;
+						setServices(scopedServices);
+						setProjects((currentProjects) => applyProjectScope(latestProjects.length ? latestProjects : currentProjects, scopedServices));
+					}, onStreamError),
 					subscribeTasks(setTasks, onStreamError),
 				];
 			} catch (loadError) {
@@ -160,10 +197,11 @@ export default function AnalyticsPage() {
 				if (typeof unsubscribe === "function") unsubscribe();
 			});
 		};
-	}, []);
+	}, [allowedCategorySet, isAdmin]);
 
 	const analytics = useMemo(() => {
 		const paidServices = services.filter((service) => service.chargeType !== "free");
+		const paidServicesCount = paidServices.length;
 		const totalRecognized = paidServices.reduce(
 			(sum, service) => sum + Math.max(calculateRecognizedPaidRevenue(service), 0),
 			0,
@@ -180,6 +218,15 @@ export default function AnalyticsPage() {
 		const cashIn = transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0);
 		const cashOut = totalExpenses;
 		const cashPosition = cashIn - cashOut;
+		const avgRecognizedPerService = paidServicesCount
+			? totalRecognized / paidServicesCount
+			: 0;
+		const pendingShareRatio = totalAgencyShare
+			? (totalPending / totalAgencyShare) * 100
+			: 0;
+		const expenseToRecognizedRatio = totalRecognized
+			? (totalExpenses / totalRecognized) * 100
+			: 0;
 
 		const completedTasks = tasks.filter(
 			(item) => String(item.status || "").toLowerCase() === "completed",
@@ -222,6 +269,7 @@ export default function AnalyticsPage() {
 			const income = Number(incomeByMonth[key] || 0);
 			const expense = Number(expenseByMonth[key] || 0);
 			const net = income - expense;
+			const margin = income ? (net / income) * 100 : 0;
 
 			return {
 				month: key,
@@ -229,6 +277,7 @@ export default function AnalyticsPage() {
 				income,
 				expenses: expense,
 				net,
+				margin,
 			};
 		});
 
@@ -268,6 +317,7 @@ export default function AnalyticsPage() {
 			...item,
 			share: clientTotal ? (item.value / clientTotal) * 100 : 0,
 		}));
+		const topClientShare = clientData[0]?.share || 0;
 
 		const expenseByCategory = expenses.reduce((acc, item) => {
 			const category = item.category || "Uncategorized";
@@ -319,6 +369,38 @@ export default function AnalyticsPage() {
 			.sort((a, b) => b.recognized - a.recognized)
 			.slice(0, 8);
 
+		const projectStatusMix = Object.entries(
+			projects.reduce((acc, project) => {
+				const status = project.status || "Unknown";
+				acc[status] = (acc[status] || 0) + 1;
+				return acc;
+			}, {}),
+		)
+			.map(([name, count]) => ({ name, count }))
+			.sort((a, b) => b.count - a.count)
+			.slice(0, 6);
+
+		const latest3Months = trendData.slice(-3);
+		const runRate = latest3Months.length
+			? latest3Months.reduce(
+					(acc, item) => {
+						acc.income += item.income;
+						acc.expenses += item.expenses;
+						acc.net += item.net;
+						return acc;
+					},
+					{ income: 0, expenses: 0, net: 0 },
+				)
+			: { income: 0, expenses: 0, net: 0 };
+
+		const runRateMonthly = latest3Months.length
+			? {
+					income: runRate.income / latest3Months.length,
+					expenses: runRate.expenses / latest3Months.length,
+					net: runRate.net / latest3Months.length,
+				}
+			: { income: 0, expenses: 0, net: 0 };
+
 		return {
 			totalRecognized,
 			totalAgencyShare,
@@ -329,6 +411,11 @@ export default function AnalyticsPage() {
 			taskCompletionRate,
 			projectCompletionRate,
 			plannerCoverageRate,
+			paidServicesCount,
+			avgRecognizedPerService,
+			pendingShareRatio,
+			expenseToRecognizedRatio,
+			topClientShare,
 			trendData,
 			recognizedTrend,
 			expenseTrend,
@@ -337,6 +424,8 @@ export default function AnalyticsPage() {
 			expenseMix,
 			deliveryData,
 			projectRows,
+			projectStatusMix,
+			runRateMonthly,
 		};
 	}, [expenses, projects, services, tasks, transactions]);
 
@@ -363,6 +452,31 @@ export default function AnalyticsPage() {
 			title="Analytics"
 			description="High-signal analytics across recognition quality, cash dynamics, concentration, and operational execution."
 		>
+			<section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+				<div className="ip-stat-card">
+					<p className="text-xs uppercase tracking-wider text-slate-500">Paid Services</p>
+					<p className="mt-2 text-2xl font-black text-slate-900">{analytics.paidServicesCount}</p>
+				</div>
+				<div className="ip-stat-card">
+					<p className="text-xs uppercase tracking-wider text-slate-500">Avg Recognized / Service</p>
+					<p className="mt-2 text-2xl font-black text-sky-700">{formatCurrency(analytics.avgRecognizedPerService)}</p>
+				</div>
+				<div className="ip-stat-card">
+					<p className="text-xs uppercase tracking-wider text-slate-500">Pending Share Ratio</p>
+					<p className="mt-2 text-2xl font-black text-amber-700">{analytics.pendingShareRatio.toFixed(1)}%</p>
+				</div>
+				<div className="ip-stat-card">
+					<p className="text-xs uppercase tracking-wider text-slate-500">Expense / Recognized</p>
+					<p className={`mt-2 text-2xl font-black ${analytics.expenseToRecognizedRatio > 100 ? 'text-rose-700' : 'text-emerald-700'}`}>
+						{analytics.expenseToRecognizedRatio.toFixed(1)}%
+					</p>
+				</div>
+				<div className="ip-stat-card">
+					<p className="text-xs uppercase tracking-wider text-slate-500">Top Client Share</p>
+					<p className="mt-2 text-2xl font-black text-violet-700">{analytics.topClientShare.toFixed(1)}%</p>
+				</div>
+			</section>
+
 			<section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-indigo-50">
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
 					<div className="ip-stat-card">
@@ -502,6 +616,47 @@ export default function AnalyticsPage() {
 									<Legend iconSize={9} />
 								</PieChart>
 							</ResponsiveContainer>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section className="mt-6 grid gap-4 xl:grid-cols-2">
+				<div className="ip-surface-section">
+					<h4 className="font-bold text-slate-900">Project Status Mix</h4>
+					<p className="text-xs text-slate-500">Distribution of projects by current lifecycle status.</p>
+					<div className="mt-3 h-72">
+						{analytics.projectStatusMix.length ? (
+							<ResponsiveContainer width="100%" height="100%">
+								<BarChart data={analytics.projectStatusMix}>
+									<CartesianGrid strokeDasharray="3 3" stroke="#eef0f6" />
+									<XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={70} />
+									<YAxis allowDecimals={false} />
+									<Tooltip />
+									<Bar dataKey="count" fill="#8246f6" radius={[8, 8, 0, 0]} />
+								</BarChart>
+							</ResponsiveContainer>
+						) : (
+							<p className="text-sm text-slate-600">No project status data yet.</p>
+						)}
+					</div>
+				</div>
+
+				<div className="ip-surface-section">
+					<h4 className="font-bold text-slate-900">3-Month Run Rate</h4>
+					<p className="text-xs text-slate-500">Average monthly pace based on the latest 3 months of activity.</p>
+					<div className="mt-4 grid gap-3 sm:grid-cols-3">
+						<div className="rounded-2xl bg-slate-50 p-3">
+							<p className="text-xs text-slate-500">Income</p>
+							<p className="mt-1 text-xl font-black text-slate-900">{formatCurrency(analytics.runRateMonthly.income)}</p>
+						</div>
+						<div className="rounded-2xl bg-rose-50 p-3">
+							<p className="text-xs text-rose-700">Expenses</p>
+							<p className="mt-1 text-xl font-black text-rose-700">{formatCurrency(analytics.runRateMonthly.expenses)}</p>
+						</div>
+						<div className="rounded-2xl bg-emerald-50 p-3">
+							<p className="text-xs text-emerald-700">Net</p>
+							<p className="mt-1 text-xl font-black text-emerald-700">{formatCurrency(analytics.runRateMonthly.net)}</p>
 						</div>
 					</div>
 				</div>

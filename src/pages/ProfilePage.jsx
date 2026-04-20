@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import ModuleShell from '../components/layout/ModuleShell'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -13,6 +14,7 @@ function fileToDataUrl(file) {
 
 export default function ProfilePage() {
   const { user, profile, updateProfileSettings } = useAuth()
+  const toast = useToast()
   const [name, setName] = useState('')
   const [photoURL, setPhotoURL] = useState('')
   const [saving, setSaving] = useState(false)
@@ -23,6 +25,19 @@ export default function ProfilePage() {
     setName(profile?.name || '')
     setPhotoURL(profile?.photoURL || '')
   }, [profile])
+
+  useEffect(() => {
+    if (!status) return
+    if (statusType === 'error') {
+      toast.error(status)
+      return
+    }
+    if (statusType === 'success') {
+      toast.success(status)
+      return
+    }
+    toast.info(status)
+  }, [status, statusType, toast])
 
   async function onPhotoFileChange(event) {
     const file = event.target.files?.[0]
@@ -137,19 +152,6 @@ export default function ProfilePage() {
               </button>
             </div>
 
-            {status ? (
-              <p
-                className={`text-sm font-medium ${
-                  statusType === 'success'
-                    ? 'text-emerald-700'
-                    : statusType === 'error'
-                      ? 'text-rose-700'
-                      : 'text-slate-600'
-                }`}
-              >
-                {status}
-              </p>
-            ) : null}
           </form>
         </section>
       </div>

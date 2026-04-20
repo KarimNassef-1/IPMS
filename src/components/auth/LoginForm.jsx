@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import { useToast } from '../../hooks/useToast'
 
 export default function LoginForm() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  const toast = useToast()
 
   const [formData, setFormData] = useState({ email: '', password: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
   function handleChange(event) {
@@ -18,18 +19,19 @@ export default function LoginForm() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    setError('')
     setIsSubmitting(true)
 
     try {
       await login(formData.email, formData.password)
       navigate('/')
     } catch (loginError) {
+      let message = ''
       if (loginError?.code === 'auth/invalid-credential') {
-        setError('Invalid email or password. Recheck credentials and make sure this user exists in Firebase Authentication for this project.')
+        message = 'Invalid email or password. Recheck credentials and make sure this user exists in Firebase Authentication for this project.'
       } else {
-        setError(loginError.message || 'Failed to login')
+        message = loginError.message || 'Failed to login'
       }
+      toast.error(message)
     } finally {
       setIsSubmitting(false)
     }
@@ -95,8 +97,6 @@ export default function LoginForm() {
         </label>
         <span className="font-medium text-slate-500">Protected session</span>
       </div>
-
-      {error ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
       <button
         type="submit"

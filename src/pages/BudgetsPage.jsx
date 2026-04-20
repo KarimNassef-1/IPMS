@@ -8,6 +8,8 @@ import {
   calculateRecognizedPaidRevenue,
 } from '../utils/calculations'
 import { formatCurrency, parseMoney } from '../utils/helpers'
+import { useAuth } from '../hooks/useAuth'
+import { createAllowedServiceCategorySet, filterServicesByAccess } from '../utils/serviceAccess'
 
 const BUDGET_LABELS = {
   karimSalary: 'Karim Salary',
@@ -40,6 +42,11 @@ function resolveBudgetKeyForExpense(expense) {
 }
 
 export default function BudgetsPage() {
+  const { isAdmin, serviceCategories } = useAuth()
+  const allowedCategorySet = useMemo(
+    () => createAllowedServiceCategorySet(serviceCategories),
+    [serviceCategories],
+  )
   const [services, setServices] = useState([])
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
@@ -48,7 +55,12 @@ export default function BudgetsPage() {
     setLoading(true)
     try {
       const [serviceData, expenseData] = await Promise.all([getAllServices(), getExpenses()])
-      setServices(serviceData)
+      const scopedServices = filterServicesByAccess(serviceData, {
+        isAdmin,
+        allowedCategorySet,
+      })
+
+      setServices(scopedServices)
       setExpenses(expenseData)
     } finally {
       setLoading(false)
@@ -57,7 +69,7 @@ export default function BudgetsPage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [isAdmin, allowedCategorySet])
 
   const paidRevenueTotal = useMemo(() => {
     return services
@@ -134,11 +146,20 @@ export default function BudgetsPage() {
     >
       <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
         <p className="text-xs text-slate-500">Source revenue (paid services only)</p>
-        <p className="text-2xl font-black text-slate-900">{formatCurrency(paidRevenueTotal)}</p>
-        <p className="mt-1 text-xs text-slate-600">
-          Included in planner: {formatCurrency(plannerPaidServices.reduce((sum, item) => sum + calculateRecognizedPaidRevenue(item), 0))}
-          {' • '}Excluded: {formatCurrency(excludedPaidRevenue)}
-        </p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="text-[11px] text-slate-500">Total Paid Revenue</p>
+            <p className="text-lg font-black text-slate-900">{formatCurrency(paidRevenueTotal)}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 px-3 py-2">
+            <p className="text-[11px] text-emerald-700">Included in Planner</p>
+            <p className="text-lg font-black text-emerald-700">{formatCurrency(plannerPaidServices.reduce((sum, item) => sum + calculateRecognizedPaidRevenue(item), 0))}</p>
+          </div>
+          <div className="rounded-xl bg-rose-50 px-3 py-2">
+            <p className="text-[11px] text-rose-700">Excluded</p>
+            <p className="text-lg font-black text-rose-700">{formatCurrency(excludedPaidRevenue)}</p>
+          </div>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -146,6 +167,7 @@ export default function BudgetsPage() {
           const allocated = Number(allocation[key]) || 0
           const spent = Number(spentByBudget[key]) || 0
           const remaining = allocated - spent
+          const utilization = allocated > 0 ? Math.min((spent / allocated) * 100, 100) : 0
 
           return (
             <div key={key} className="rounded-2xl border border-white/30 bg-white/80 p-4">
@@ -156,6 +178,13 @@ export default function BudgetsPage() {
               <p className={remaining < 0 ? 'text-xs font-semibold text-rose-600' : 'text-xs font-semibold text-emerald-700'}>
                 Remaining: {formatCurrency(remaining)}
               </p>
+              <div className="mt-2 h-1.5 rounded-full bg-slate-200">
+                <div
+                  className={remaining < 0 ? 'h-1.5 rounded-full bg-rose-500' : 'h-1.5 rounded-full bg-[#8246f6]'}
+                  style={{ width: `${utilization}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Utilization: {utilization.toFixed(1)}%</p>
             </div>
           )
         })}

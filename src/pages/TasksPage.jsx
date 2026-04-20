@@ -15,6 +15,7 @@ import { ASSIGNEES, TASK_PRIORITIES, TASK_STATUSES } from '../utils/constants'
 import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
 import { getAllUsers } from '../services/teamUsersService'
+import { useToast } from '../hooks/useToast'
 
 const YOUSSEF_NAME = 'youssef'
 
@@ -24,6 +25,7 @@ function todayKey() {
 
 export default function TasksPage() {
   const { user, role, isAdmin, hasAccess } = useAuth()
+  const toast = useToast()
   const [tasks, setTasks] = useState([])
   const [allDailyTasks, setAllDailyTasks] = useState([])
   const [users, setUsers] = useState([])
@@ -58,6 +60,20 @@ export default function TasksPage() {
     loadUsers()
   }, [])
 
+  useEffect(() => {
+    if (!statusMessage) return
+    const normalized = statusMessage.toLowerCase()
+    if (
+      normalized.includes('only') ||
+      normalized.includes('could not') ||
+      normalized.includes('failed')
+    ) {
+      toast.error(statusMessage)
+      return
+    }
+    toast.info(statusMessage)
+  }, [statusMessage, toast])
+
   const youssefUser = useMemo(() => {
     return users.find((item) => {
       const name = String(item?.name || '').trim().toLowerCase()
@@ -91,6 +107,17 @@ export default function TasksPage() {
     const completed = todaysDailyTasks.filter((item) => item.isCompleted).length
     return Number(((completed / todaysDailyTasks.length) * 100).toFixed(2))
   }, [todaysDailyTasks])
+
+  const openCount = tasks.length - tasks.filter((item) => item.status === 'Completed').length
+  const highPriorityOpenCount = useMemo(
+    () =>
+      tasks.filter((task) => {
+        const status = String(task?.status || '').toLowerCase()
+        const priority = String(task?.priority || '').toLowerCase()
+        return status !== 'completed' && (priority === 'high' || priority === 'urgent')
+      }).length,
+    [tasks],
+  )
 
   function isAssignedToYoussef(taskLike) {
     return String(taskLike?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME
@@ -303,9 +330,26 @@ export default function TasksPage() {
       title="Tasks"
       description="Track regular tasks with assignment, priority, deadline, and progress status."
     >
-      {statusMessage ? <p className="mb-4 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700">{statusMessage}</p> : null}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Total Tasks</p>
+          <p className="mt-1 text-2xl font-black text-slate-900">{tasks.length}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Open Tasks</p>
+          <p className="mt-1 text-2xl font-black text-violet-700">{openCount}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">High Priority Open</p>
+          <p className="mt-1 text-2xl font-black text-amber-700">{highPriorityOpenCount}</p>
+        </div>
+        <div className="ip-stat-card">
+          <p className="text-xs uppercase tracking-wider text-slate-500">Completion Rate</p>
+          <p className="mt-1 text-2xl font-black text-emerald-700">{completionRate}%</p>
+        </div>
+      </section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
         <form onSubmit={handleSubmit} className="space-y-3 rounded-2xl border border-white/30 bg-white/80 p-4">
           <h4 className="font-bold text-slate-900">Create Task</h4>
           <input name="name" value={form.name} onChange={handleChange} placeholder="Task name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
@@ -329,13 +373,22 @@ export default function TasksPage() {
           <button className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7]">Add Task</button>
         </form>
 
-        <div className="rounded-2xl border border-white/30 bg-white/80 p-4">
-          <h4 className="font-bold text-slate-900">Task Completion Rate</h4>
-          <p className="mt-2 text-3xl font-black text-slate-900">{completionRate}%</p>
+        <section className="rounded-2xl border border-white/30 bg-white/80 p-4">
+          <h4 className="font-bold text-slate-900">Execution Quality</h4>
+          <p className="mt-1 text-xs text-slate-500">Current progress across all regular tasks.</p>
+          <p className="mt-3 text-3xl font-black text-slate-900">{completionRate}%</p>
           <div className="mt-3 h-2 rounded-full bg-slate-200">
             <div className="h-2 rounded-full bg-[#8246f6]" style={{ width: `${completionRate}%` }} />
           </div>
-        </div>
+          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+            <p className="rounded-lg bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
+              Completed: {tasks.length - openCount}
+            </p>
+            <p className="rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">
+              Open: {openCount}
+            </p>
+          </div>
+        </section>
       </div>
 
       <div className="mt-6 space-y-3">
@@ -344,8 +397,12 @@ export default function TasksPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h5 className="font-semibold text-slate-900">{task.name}</h5>
-                <p className="text-xs text-slate-600">{task.assignedTo} • {task.priority} • due {task.deadline}</p>
-                <p className="mt-1 text-[11px] font-semibold text-slate-500">{task.locked ? 'Locked' : 'Unlocked'}</p>
+                <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{task.assignedTo}</span>
+                  <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">{task.priority}</span>
+                  <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">Due {task.deadline}</span>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">{task.locked ? 'Locked' : 'Unlocked'}</span>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <select

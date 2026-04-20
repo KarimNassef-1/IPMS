@@ -303,6 +303,21 @@ article {
 	}
 }
 
+@keyframes ip-toast-timer {
+	0% {
+		transform: scaleX(1);
+	}
+	100% {
+		transform: scaleX(0);
+	}
+}
+
+.ip-toast-timer {
+	animation-name: ip-toast-timer;
+	animation-timing-function: linear;
+	animation-fill-mode: forwards;
+}
+
 @media (max-width: 1024px) {
 	.ip-auth-glow {
 		height: 320px;

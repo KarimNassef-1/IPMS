@@ -8,7 +8,12 @@ import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, firebaseError, firebaseReady, firestore } from '../services/firebase'
 import { AuthContext } from './auth-context'
 import { DEFAULT_ROLE_PERMISSIONS } from '../utils/constants'
-import { subscribeRolePermissions } from '../services/teamUsersService'
+import { subscribeRolePermissions, subscribeTeams } from '../services/teamUsersService'
+import {
+  canAccessServiceCategory,
+  createAllowedServiceCategorySet,
+  resolveTeamServiceCategories,
+} from '../utils/serviceAccess'
 
 function resolveDefaultRole(email) {
   const normalized = String(email || '').trim().toLowerCase()
@@ -35,6 +40,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [teams, setTeams] = useState([])
   const [rolePermissions, setRolePermissions] = useState(DEFAULT_ROLE_PERMISSIONS)
   const [loading, setLoading] = useState(firebaseReady)
 
@@ -51,6 +57,21 @@ export function AuthProvider({ children }) {
     )
 
     return () => unsubscribePermissions()
+  }, [])
+
+  useEffect(() => {
+    if (!firebaseReady || !firestore) return undefined
+
+    const unsubscribeTeams = subscribeTeams(
+      (items) => {
+        setTeams(items)
+      },
+      () => {
+        setTeams([])
+      },
+    )
+
+    return () => unsubscribeTeams()
   }, [])
 
   useEffect(() => {
@@ -86,6 +107,7 @@ export function AuthProvider({ children }) {
           setProfile({
             name: userData.name || firebaseUser.displayName || 'User',
             photoURL: userData.photoURL || firebaseUser.photoURL || '',
+            teamIds: Array.isArray(userData.teamIds) ? userData.teamIds : [],
           })
 
           if (normalizedRole) {
@@ -114,12 +136,14 @@ export function AuthProvider({ children }) {
             photoURL: firebaseUser.photoURL || '',
             email: firebaseUser.email || '',
             role: defaultRole,
+            teamIds: [],
             createdAt: new Date().toISOString(),
           })
 
           setProfile({
             name: firebaseUser.displayName || 'User',
             photoURL: firebaseUser.photoURL || '',
+            teamIds: [],
           })
 
           setRole(defaultRole)
@@ -178,26 +202,35 @@ export function AuthProvider({ children }) {
   }, [profile?.name, user?.displayName])
 
   const value = useMemo(
-    () => ({
-      user,
-      role,
-      profile,
-      rolePermissions,
-      loading,
-      firebaseReady,
-      firebaseError,
-      login,
-      logout,
-      updateProfileSettings,
-      hasAccess: (permissionKey) => {
-        if (role === 'admin') return true
-        const permissions = rolePermissions?.[role] || []
-        return permissions.includes(permissionKey)
-      },
-      isAdmin: role === 'admin',
-      isPartner: role === 'partner',
-    }),
-    [user, role, profile, rolePermissions, loading, updateProfileSettings],
+    () => {
+      const resolvedServiceCategories =
+        role === 'admin' ? [] : resolveTeamServiceCategories(teams, profile?.teamIds)
+      const allowedCategorySet = createAllowedServiceCategorySet(resolvedServiceCategories)
+
+      return {
+        user,
+        role,
+        profile,
+        serviceCategories: resolvedServiceCategories,
+        rolePermissions,
+        loading,
+        firebaseReady,
+        firebaseError,
+        login,
+        logout,
+        updateProfileSettings,
+        canAccessServiceCategory: (category) =>
+          canAccessServiceCategory(category, allowedCategorySet, role === 'admin'),
+        hasAccess: (permissionKey) => {
+          if (role === 'admin') return true
+          const permissions = rolePermissions?.[role] || []
+          return permissions.includes(permissionKey)
+        },
+        isAdmin: role === 'admin',
+        isPartner: role === 'partner',
+      }
+    },
+    [user, role, profile, teams, rolePermissions, loading, updateProfileSettings],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

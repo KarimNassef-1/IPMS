@@ -1,5 +1,5 @@
 import ModuleShell from '../components/layout/ModuleShell'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   addServiceToProject,
   createProject,
@@ -10,10 +10,16 @@ import {
   updateService,
   updateProject,
 } from '../services/projectService'
-import { PROJECT_STATUSES, PROJECT_TYPES } from '../utils/constants'
+import { PROJECT_STATUSES, PROJECT_TYPES, SERVICE_CATEGORIES } from '../utils/constants'
 import { formatCurrency } from '../utils/helpers'
 import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
+import {
+  createAllowedServiceCategorySet,
+  filterProjectsByVisibleServices,
+  filterServicesByAccess,
+} from '../utils/serviceAccess'
 import {
   estimateRecurringMonths,
   getServiceFinancialBreakdown,
@@ -33,6 +39,7 @@ function createInitialServiceForm() {
   return {
     projectId: '',
     serviceName: '',
+    serviceCategory: '',
     chargeType: 'paid',
     includeInFinancialPlanner: true,
     allocationMode: 'auto',
@@ -57,6 +64,8 @@ function createInitialServiceForm() {
     recurringEnd: '',
     valueAmount: '',
     paymentStatus: 'pending',
+    websiteLinkName: '',
+    websiteLinkUrl: '',
     paymentDate: '',
     installments: [createInstallment(), createInstallment()],
   }
@@ -80,6 +89,7 @@ function serviceToForm(service) {
   return {
     projectId: service.projectId || '',
     serviceName: service.serviceName || '',
+    serviceCategory: service.serviceCategory || '',
     chargeType: service.chargeType === 'free' ? 'free' : 'paid',
     includeInFinancialPlanner: service.includeInFinancialPlanner !== false,
     allocationMode: service.allocationMode === 'manual' ? 'manual' : 'auto',
@@ -120,6 +130,8 @@ function serviceToForm(service) {
     recurringEnd: service.recurringEnd || '',
     valueAmount: fallbackValue ? String(fallbackValue) : '',
     paymentStatus: service.paymentStatus || 'pending',
+    websiteLinkName: service.websiteLinkName || '',
+    websiteLinkUrl: service.websiteLinkUrl || '',
     paymentDate: service.paymentDate || '',
     installments:
       paymentMode === 'installments'
@@ -129,7 +141,12 @@ function serviceToForm(service) {
 }
 
 export default function ProjectsPage() {
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, serviceCategories } = useAuth()
+  const toast = useToast()
+  const allowedCategorySet = useMemo(
+    () => createAllowedServiceCategorySet(serviceCategories),
+    [serviceCategories],
+  )
   const [projects, setProjects] = useState([])
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(true)
@@ -141,6 +158,7 @@ export default function ProjectsPage() {
   const [serviceSuccess, setServiceSuccess] = useState('')
   const [editingProjectId, setEditingProjectId] = useState(null)
   const [editingServiceId, setEditingServiceId] = useState(null)
+  const [showComposer, setShowComposer] = useState(false)
   const [projectForm, setProjectForm] = useState({
     clientName: '',
     projectName: '',
@@ -155,13 +173,46 @@ export default function ProjectsPage() {
   })
 
   const [serviceForm, setServiceForm] = useState(createInitialServiceForm())
+  const composerSectionRef = useRef(null)
+  const showCompletedWebsiteLinkFields =
+    serviceForm.serviceCategory === 'Website Development' && serviceForm.paymentStatus === 'completed'
+  const isEditingMode = Boolean(editingProjectId || editingServiceId)
+  const isComposerVisible = isAdmin && (showComposer || isEditingMode)
+  const composerToggleButton = isAdmin ? (
+    <button
+      type="button"
+      onClick={() => setShowComposer((current) => !current)}
+      className="group relative inline-flex h-7 w-7 shrink-0 self-center items-center justify-center rounded-full border border-slate-300/90 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-700 shadow-[0_8px_16px_-14px_rgba(15,23,42,0.8)] transition duration-200 hover:-translate-y-[1px] hover:border-slate-400 hover:shadow-[0_10px_18px_-14px_rgba(15,23,42,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+      title={isComposerVisible ? 'Hide project and service forms' : 'Show project and service forms'}
+      aria-label={isComposerVisible ? 'Hide project and service forms' : 'Show project and service forms'}
+      aria-pressed={isComposerVisible}
+    >
+      <span className="pointer-events-none absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.96),rgba(255,255,255,0)_58%)]" />
+      <span className="relative block h-3 w-3">
+        <span className="absolute left-0 top-1/2 h-[2px] w-3 -translate-y-1/2 rounded-full bg-slate-700 transition-colors duration-200 group-hover:bg-slate-900" />
+        <span
+          className={`absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 rounded-full bg-slate-700 transition-all duration-200 group-hover:bg-slate-900 ${
+            isComposerVisible ? 'scale-y-0 opacity-0' : 'scale-y-100 opacity-100'
+          }`}
+        />
+      </span>
+    </button>
+  ) : null
 
   async function loadData() {
     setLoading(true)
     try {
       const [projectData, serviceData] = await Promise.all([getProjects(), getAllServices()])
-      setProjects(projectData)
-      setServices(serviceData)
+      const scopedServices = filterServicesByAccess(serviceData, {
+        isAdmin,
+        allowedCategorySet,
+      })
+      const scopedProjects = isAdmin
+        ? projectData
+        : filterProjectsByVisibleServices(projectData, scopedServices)
+
+      setProjects(scopedProjects)
+      setServices(scopedServices)
     } finally {
       setLoading(false)
     }
@@ -169,7 +220,23 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [isAdmin, allowedCategorySet])
+
+  useEffect(() => {
+    if (projectError) toast.error(projectError)
+  }, [projectError, toast])
+
+  useEffect(() => {
+    if (serviceError) toast.error(serviceError)
+  }, [serviceError, toast])
+
+  useEffect(() => {
+    if (projectSuccess) toast.success(projectSuccess)
+  }, [projectSuccess, toast])
+
+  useEffect(() => {
+    if (serviceSuccess) toast.success(serviceSuccess)
+  }, [serviceSuccess, toast])
 
   const revenueBreakdownByProjectId = useMemo(() => {
     return services.reduce((acc, service) => {
@@ -282,9 +349,29 @@ export default function ProjectsPage() {
           next.installments = [createInstallment()]
           next.revenue = ''
           next.paymentStatus = 'free'
+          next.websiteLinkName = ''
+          next.websiteLinkUrl = ''
           next.paymentDate = ''
         } else if (next.paymentStatus === 'free') {
           next.paymentStatus = 'pending'
+        }
+        return next
+      }
+
+      if (name === 'serviceCategory') {
+        const next = { ...current, serviceCategory: value }
+        if (value !== 'Website Development') {
+          next.websiteLinkName = ''
+          next.websiteLinkUrl = ''
+        }
+        return next
+      }
+
+      if (name === 'paymentStatus') {
+        const next = { ...current, paymentStatus: value }
+        if (!(next.serviceCategory === 'Website Development' && value === 'completed')) {
+          next.websiteLinkName = ''
+          next.websiteLinkUrl = ''
         }
         return next
       }
@@ -351,6 +438,7 @@ export default function ProjectsPage() {
   function validateServiceForm() {
     if (!serviceForm.projectId) return 'Please select a project.'
     if (!serviceForm.serviceName.trim()) return 'Please enter a service name.'
+    if (!serviceForm.serviceCategory) return 'Please select a service category.'
 
     const hasOneTimePart =
       serviceForm.chargeType !== 'free' &&
@@ -416,6 +504,21 @@ export default function ProjectsPage() {
 
     if (serviceForm.chargeType === 'free' && (Number(serviceForm.valueAmount) || 0) <= 0) {
       return 'For free services, please set an estimated value.'
+    }
+
+    if (showCompletedWebsiteLinkFields) {
+      if (!String(serviceForm.websiteLinkName || '').trim()) {
+        return 'Please enter a website name for this completed service.'
+      }
+
+      const rawWebsiteLink = String(serviceForm.websiteLinkUrl || '').trim()
+      if (!rawWebsiteLink) {
+        return 'Please add the website link URL for this completed service.'
+      }
+
+      if (!/^https?:\/\//i.test(rawWebsiteLink) && !/^[\w.-]+\.[a-z]{2,}/i.test(rawWebsiteLink)) {
+        return 'Please enter a valid website URL.'
+      }
     }
 
     if (
@@ -574,10 +677,32 @@ export default function ProjectsPage() {
       return
     }
 
+    setShowComposer(true)
     setEditingServiceId(service.id)
     setServiceError('')
     setServiceSuccess('')
     setServiceForm(serviceToForm(service))
+    requestAnimationFrame(() => {
+      composerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  function cancelEditProject() {
+    setEditingProjectId(null)
+    setProjectError('')
+    setProjectSuccess('')
+    setProjectForm({
+      clientName: '',
+      projectName: '',
+      projectType: '',
+      type: PROJECT_TYPES[0],
+      startDate: '',
+      deadline: '',
+      status: PROJECT_STATUSES[0],
+      notes: '',
+      recurringPaused: false,
+      recurringCancelled: false,
+    })
   }
 
   function cancelEditService() {
@@ -674,6 +799,7 @@ export default function ProjectsPage() {
       return
     }
 
+    setShowComposer(true)
     setEditingProjectId(project.id)
     setProjectForm({
       clientName: project.clientName || '',
@@ -687,11 +813,19 @@ export default function ProjectsPage() {
       recurringPaused: Boolean(project.recurringPaused),
       recurringCancelled: Boolean(project.recurringCancelled),
     })
+    requestAnimationFrame(() => {
+      composerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   return (
     <ModuleShell
-      title="Projects"
+      title={
+        <span className="inline-flex items-center gap-2 align-middle leading-none">
+          <span className="leading-none">Projects</span>
+          {composerToggleButton}
+        </span>
+      }
       description="Manage client projects and services with one-time payments and monthly recurring plans (ongoing or until a specific date)."
     >
       {!isAdmin ? (
@@ -700,9 +834,27 @@ export default function ProjectsPage() {
         </p>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
+      <div
+        ref={composerSectionRef}
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-500 ease-in-out ${
+          isComposerVisible ? 'grid-rows-[1fr] opacity-100' : 'pointer-events-none grid-rows-[0fr] opacity-0'
+        }`}
+      >
+      <div className="min-h-0 overflow-hidden">
+      <div className="grid gap-4 pt-1 lg:grid-cols-2 lg:gap-6">
         <form onSubmit={submitProject} className="space-y-3 rounded-2xl border border-white/35 bg-white/86 p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
-          <h4 className="font-bold text-slate-900">{editingProjectId ? 'Edit Project' : 'Create Project'}</h4>
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="font-bold text-slate-900">{editingProjectId ? 'Edit Project' : 'Create Project'}</h4>
+            {editingProjectId ? (
+              <button
+                type="button"
+                onClick={cancelEditProject}
+                className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+              >
+                Cancel Edit
+              </button>
+            ) : null}
+          </div>
           <input name="clientName" value={projectForm.clientName} onChange={handleProjectInput} placeholder="Client name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           <input name="projectName" value={projectForm.projectName} onChange={handleProjectInput} placeholder="Project name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           <input name="projectType" value={projectForm.projectType} onChange={handleProjectInput} placeholder="Project type" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
@@ -731,8 +883,6 @@ export default function ProjectsPage() {
               </label>
             </div>
           ) : null}
-          {projectError ? <p className="text-xs text-rose-600">{projectError}</p> : null}
-          {projectSuccess ? <p className="text-xs text-emerald-700">{projectSuccess}</p> : null}
           <button
             type="submit"
             disabled={submittingProject || !isAdmin}
@@ -766,6 +916,18 @@ export default function ProjectsPage() {
             {projects.map((project) => <option key={project.id} value={project.id}>{project.projectName}</option>)}
           </select>
           <input name="serviceName" value={serviceForm.serviceName} onChange={handleServiceInput} placeholder="Service name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
+          <select
+            name="serviceCategory"
+            value={serviceForm.serviceCategory}
+            onChange={handleServiceInput}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            required
+          >
+            <option value="">Select service category</option>
+            {SERVICE_CATEGORIES.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
           <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
               <input
@@ -1111,14 +1273,33 @@ export default function ProjectsPage() {
               <select name="paymentStatus" value={serviceForm.paymentStatus} onChange={handleServiceInput} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
                 <option value="pending">Pending</option>
                 <option value="paid">Paid</option>
+                <option value="completed">Completed</option>
               </select>
               <input name="paymentDate" type="date" value={serviceForm.paymentDate} onChange={handleServiceInput} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
           ) : (
             <p className="text-xs text-slate-600">Free service: no client payment required. Estimated value is tracked for reporting.</p>
           )}
-          {serviceError ? <p className="text-xs text-rose-600">{serviceError}</p> : null}
-          {serviceSuccess ? <p className="text-xs text-emerald-700">{serviceSuccess}</p> : null}
+
+          {showCompletedWebsiteLinkFields ? (
+            <div className="grid gap-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3 sm:grid-cols-2">
+              <input
+                name="websiteLinkName"
+                value={serviceForm.websiteLinkName}
+                onChange={handleServiceInput}
+                placeholder="Website name (e.g. Client Main Site)"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <input
+                name="websiteLinkUrl"
+                value={serviceForm.websiteLinkUrl}
+                onChange={handleServiceInput}
+                placeholder="Website link (e.g. https://example.com)"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+          ) : null}
+
           <button
             type="submit"
             disabled={submittingService || !isAdmin}
@@ -1134,6 +1315,8 @@ export default function ProjectsPage() {
           </button>
         </form>
       </div>
+      </div>
+      </div>
 
       <div className="mt-6 space-y-4">
         {loading ? <p className="text-sm text-slate-600">Loading projects...</p> : null}
@@ -1143,22 +1326,27 @@ export default function ProjectsPage() {
               <div>
                 <h4 className="text-base font-bold text-slate-900 sm:text-lg">{project.projectName}</h4>
                 <p className="text-xs text-slate-600 sm:text-sm">{project.clientName} • {project.status} • {project.type}</p>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                  <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
-                    Contract: {formatCurrency(revenueBreakdownByProjectId[project.id]?.totalContractValue || 0)}
-                  </span>
-                  <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700">
-                    Agency Share: {formatCurrency(revenueBreakdownByProjectId[project.id]?.agencyShareTotal || 0)}
-                  </span>
-                  <span className="rounded-full bg-sky-100 px-2 py-1 font-semibold text-sky-700">
-                    Inhouse: {formatCurrency(revenueBreakdownByProjectId[project.id]?.inhouseRevenue || 0)}
-                  </span>
-                  <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-700">
-                    Outsource: {formatCurrency(revenueBreakdownByProjectId[project.id]?.outsourceShare || 0)}
-                  </span>
-                  <span className="rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
-                    Free Value: {formatCurrency(revenueBreakdownByProjectId[project.id]?.freeValue || 0)}
-                  </span>
+                <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-2 xl:grid-cols-5">
+                  <div className="rounded-lg bg-slate-100 px-2 py-1.5 font-semibold text-slate-700">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500">Contract</p>
+                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.totalContractValue || 0)}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-100 px-2 py-1.5 font-semibold text-emerald-700">
+                    <p className="text-[10px] uppercase tracking-wider text-emerald-700/80">Agency Share</p>
+                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.agencyShareTotal || 0)}</p>
+                  </div>
+                  <div className="rounded-lg bg-sky-100 px-2 py-1.5 font-semibold text-sky-700">
+                    <p className="text-[10px] uppercase tracking-wider text-sky-700/80">Inhouse</p>
+                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.inhouseRevenue || 0)}</p>
+                  </div>
+                  <div className="rounded-lg bg-amber-100 px-2 py-1.5 font-semibold text-amber-700">
+                    <p className="text-[10px] uppercase tracking-wider text-amber-700/80">Outsource</p>
+                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.outsourceShare || 0)}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50 px-2 py-1.5 font-semibold text-emerald-700">
+                    <p className="text-[10px] uppercase tracking-wider text-emerald-700/80">Free Value</p>
+                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.freeValue || 0)}</p>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -1181,34 +1369,34 @@ export default function ProjectsPage() {
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
-                      {service.chargeType === 'free' ? 'Free' : 'Paid'}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
-                      {service.deliveryType === 'outsource' ? 'Outsource' : 'Inhouse'}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
-                      {service.billingType === 'hybrid'
-                        ? 'Hybrid'
-                        : service.billingType === 'monthly'
-                          ? 'Monthly'
-                          : 'One-time'}
-                    </span>
-                    <span className="rounded-full bg-sky-100 px-2 py-1 font-semibold text-sky-700">
-                      Contract: {formatCurrency(serviceBreakdown.contractValue)}
-                    </span>
-                    <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700">
-                      Agency Share: {formatCurrency(serviceBreakdown.agencyShare)}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
-                      Status: {service.paymentStatus || 'pending'}
-                    </span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{service.chargeType === 'free' ? 'Free' : 'Paid'}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{service.deliveryType === 'outsource' ? 'Outsource' : 'Inhouse'}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{service.billingType === 'hybrid' ? 'Hybrid' : service.billingType === 'monthly' ? 'Monthly' : 'One-time'}</span>
+                    <span className="rounded-full bg-violet-100 px-2 py-1 font-semibold text-violet-700">{service.serviceCategory || 'Uncategorized'}</span>
+                  </div>
+
+                  <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700">
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500">Contract</p>
+                      <p className="font-semibold">{formatCurrency(serviceBreakdown.contractValue)}</p>
+                    </div>
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-emerald-700">
+                      <p className="text-[10px] uppercase tracking-wider text-emerald-700/80">Agency Share</p>
+                      <p className="font-semibold">{formatCurrency(serviceBreakdown.agencyShare)}</p>
+                    </div>
+                    <div className="rounded-lg border border-sky-200 bg-sky-50 px-2 py-1.5 text-sky-700">
+                      <p className="text-[10px] uppercase tracking-wider text-sky-700/80">One-time</p>
+                      <p className="font-semibold">{formatCurrency(serviceBreakdown.oneTimeContract)}</p>
+                    </div>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-700">
+                      <p className="text-[10px] uppercase tracking-wider text-amber-700/80">Recurring</p>
+                      <p className="font-semibold">{formatCurrency(serviceBreakdown.recurringContract)}</p>
+                    </div>
                   </div>
 
                   {service.chargeType !== 'free' ? (
                     <p className="mt-1 text-xs text-slate-600">
-                      One-time contract: {formatCurrency(serviceBreakdown.oneTimeContract)}
-                      {' • '}Recurring contract: {formatCurrency(serviceBreakdown.recurringContract)}
+                      Payment status: <span className="font-semibold">{service.paymentStatus || 'pending'}</span>
                       {service.billingType === 'monthly' || service.billingType === 'hybrid'
                         ? ` • Recurring months active: ${serviceBreakdown.recurringMonths}`
                         : ''}
@@ -1218,6 +1406,20 @@ export default function ProjectsPage() {
                       Value: {formatCurrency(Number(service.valueAmount) || Number(service.totalContractValue) || 0)}
                     </p>
                   )}
+
+                  {service.serviceCategory === 'Website Development' &&
+                  service.paymentStatus === 'completed' &&
+                  service.websiteLinkUrl ? (
+                    <a
+                      href={service.websiteLinkUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                    >
+                      <span>{service.websiteLinkName || 'Website Link'}</span>
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  ) : null}
 
                   <div className="mt-2 flex flex-wrap gap-2">
                     {service.includeInFinancialPlanner === false ? (
@@ -1245,27 +1447,33 @@ export default function ProjectsPage() {
                   ) : null}
 
                   {service.deliveryType === 'outsource' ? (
-                    <p className="mt-1 text-xs text-amber-700">
-                      Outsource fee: {formatCurrency(Number(service.outsourceServiceFee) || 0)}
-                      {' • '}One-time %: {Number(service.outsourcePercentage) || 0}%
-                      {' • '}Recurring %:{' '}
-                      {service.recurringOutsourcePercentage == null
-                        ? Number(service.outsourcePercentage) || 0
-                        : Number(service.recurringOutsourcePercentage) || 0}
-                      %
-                      {' • '}One-time share: {formatCurrency(serviceBreakdown.oneTimeAgency)}
-                      {' • '}Recurring share: {formatCurrency(serviceBreakdown.recurringAgency)}
-                    </p>
+                    <details className="mt-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2 py-1.5 text-xs text-amber-800">
+                      <summary className="cursor-pointer font-semibold">Outsource Breakdown</summary>
+                      <p className="mt-1">
+                        Outsource fee: {formatCurrency(Number(service.outsourceServiceFee) || 0)}
+                        {' • '}One-time %: {Number(service.outsourcePercentage) || 0}%
+                        {' • '}Recurring %:{' '}
+                        {service.recurringOutsourcePercentage == null
+                          ? Number(service.outsourcePercentage) || 0
+                          : Number(service.recurringOutsourcePercentage) || 0}
+                        %
+                        {' • '}One-time share: {formatCurrency(serviceBreakdown.oneTimeAgency)}
+                        {' • '}Recurring share: {formatCurrency(serviceBreakdown.recurringAgency)}
+                      </p>
+                    </details>
                   ) : null}
 
                   {Array.isArray(service.installments) && service.installments.length ? (
-                    <div className="mt-2 rounded border border-slate-100 bg-slate-50 p-2 text-xs text-slate-700">
-                      {service.installments.map((installment, index) => (
-                        <p key={installment.id || `${service.id}-${index}`}>
-                          Payment {index + 1}: {formatCurrency(Number(installment.amount) || 0)} • Due {installment.dueDate || 'N/A'} • {installment.status || 'pending'}
-                        </p>
-                      ))}
-                    </div>
+                    <details className="mt-2 rounded border border-slate-100 bg-slate-50 p-2 text-xs text-slate-700">
+                      <summary className="cursor-pointer font-semibold">Installment Schedule ({service.installments.length})</summary>
+                      <div className="mt-1 space-y-1">
+                        {service.installments.map((installment, index) => (
+                          <p key={installment.id || `${service.id}-${index}`}>
+                            Payment {index + 1}: {formatCurrency(Number(installment.amount) || 0)} • Due {installment.dueDate || 'N/A'} • {installment.status || 'pending'}
+                          </p>
+                        ))}
+                      </div>
+                    </details>
                   ) : null}
                 </div>
                 )})}

@@ -13,11 +13,11 @@ export default function Topbar() {
   }
 
   return (
-    <header className="sticky top-2 z-20 mb-3 rounded-2xl border border-white/30 bg-white/72 px-3 py-3 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.45)] backdrop-blur-xl sm:mb-5 sm:rounded-3xl sm:px-4 sm:py-4 lg:px-5">
+    <header className="pointer-events-none sticky top-2 z-20 mb-3 sm:mb-5">
       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
         <div className="min-w-0 flex-1" />
 
-        <div className="ml-auto flex items-center gap-2 rounded-2xl border border-white/60 bg-white/80 px-2.5 py-2 shadow-sm sm:gap-3 sm:px-3 sm:py-2.5">
+        <div className="pointer-events-auto ml-auto flex items-center gap-2 rounded-2xl border border-white/60 bg-white/80 px-2.5 py-2 shadow-sm sm:gap-3 sm:px-3 sm:py-2.5">
           <Link to="/profile" className="flex items-center gap-2 sm:gap-3">
             <p className="hidden max-w-[220px] truncate text-sm font-bold text-slate-900 sm:block sm:text-base">{profile?.name || 'User'}</p>
             {profile?.photoURL ? (

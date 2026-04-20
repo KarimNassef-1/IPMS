@@ -10,15 +10,42 @@ import {
 	updateDoc,
 } from "firebase/firestore";
 import { initializeApp, deleteApp } from "firebase/app";
-import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
-import { app, ensureFirebaseReady, firebaseConfig, firebaseError, firebaseReady } from "./firebase";
+import {
+	createUserWithEmailAndPassword,
+	getAuth,
+	signOut,
+} from "firebase/auth";
+import {
+	app,
+	ensureFirebaseReady,
+	firebaseConfig,
+	firebaseError,
+	firebaseReady,
+} from "./firebase";
+import { normalizeServiceCategory } from "../utils/serviceAccess";
 
 const USERS = "users";
 const TEAMS = "teams";
 const ROLE_PERMISSIONS = "role_permissions";
 
 function normalizeArray(values) {
-	return Array.from(new Set((Array.isArray(values) ? values : []).map((item) => String(item).trim()).filter(Boolean)));
+	return Array.from(
+		new Set(
+			(Array.isArray(values) ? values : [])
+				.map((item) => String(item).trim())
+				.filter(Boolean),
+		),
+	);
+}
+
+function normalizeServiceCategories(values) {
+	return Array.from(
+		new Set(
+			(Array.isArray(values) ? values : [])
+				.map((value) => normalizeServiceCategory(value))
+				.filter(Boolean),
+		),
+	);
 }
 
 function normalizeTeamMembers(values) {
@@ -29,6 +56,7 @@ function normalizeTeamMembers(values) {
 			id: String(item?.id || `member_${index + 1}`).trim(),
 			name: String(item?.name || "").trim(),
 			technicalRole: String(item?.technicalRole || "").trim(),
+			websiteTracks: normalizeArray(item?.websiteTracks),
 			pictureUrl: String(item?.pictureUrl || "").trim(),
 			userId: String(item?.userId || "").trim(),
 			isUser: Boolean(item?.isUser || item?.userId),
@@ -37,21 +65,28 @@ function normalizeTeamMembers(values) {
 }
 
 function buildManagedUserId(email) {
-	const normalizedEmail = String(email || "").trim().toLowerCase();
+	const normalizedEmail = String(email || "")
+		.trim()
+		.toLowerCase();
 	if (!normalizedEmail) return "";
 	return `managed_${normalizedEmail.replace(/[^a-z0-9]/g, "_")}`;
 }
 
 function normalizeEmail(email) {
-	return String(email || "").trim().toLowerCase();
+	return String(email || "")
+		.trim()
+		.toLowerCase();
 }
 
 function mapAuthCreationError(error) {
 	const code = error?.code || "";
-	if (code === "auth/email-already-in-use") return "This email already has an account.";
+	if (code === "auth/email-already-in-use")
+		return "This email already has an account.";
 	if (code === "auth/invalid-email") return "Invalid email format.";
-	if (code === "auth/weak-password") return "Password is too weak. Use at least 6 characters.";
-	if (code === "auth/operation-not-allowed") return "Email/password sign-in is disabled in Firebase Authentication.";
+	if (code === "auth/weak-password")
+		return "Password is too weak. Use at least 6 characters.";
+	if (code === "auth/operation-not-allowed")
+		return "Email/password sign-in is disabled in Firebase Authentication.";
 	return error?.message || "Failed to create login account.";
 }
 
@@ -62,9 +97,16 @@ function mapManagedUserCreationError(error) {
 	return mapAuthCreationError(error);
 }
 
-export async function createManagedAuthUser(email, password, profilePayload = {}) {
+export async function createManagedAuthUser(
+	email,
+	password,
+	profilePayload = {},
+) {
 	if (!firebaseReady || !app) {
-		throw new Error(firebaseError || "Firebase is not initialized. Cannot create login accounts.");
+		throw new Error(
+			firebaseError ||
+				"Firebase is not initialized. Cannot create login accounts.",
+		);
 	}
 
 	const normalizedEmail = normalizeEmail(email);
@@ -85,7 +127,11 @@ export async function createManagedAuthUser(email, password, profilePayload = {}
 	let createdUser = null;
 
 	try {
-		const credential = await createUserWithEmailAndPassword(tempAuth, normalizedEmail, safePassword);
+		const credential = await createUserWithEmailAndPassword(
+			tempAuth,
+			normalizedEmail,
+			safePassword,
+		);
 		createdUser = credential.user;
 
 		await setDoc(
@@ -93,7 +139,10 @@ export async function createManagedAuthUser(email, password, profilePayload = {}
 			{
 				name: String(profilePayload?.name || "").trim() || "User",
 				email: normalizedEmail,
-				role: String(profilePayload?.role || "viewer").trim().toLowerCase() || "viewer",
+				role:
+					String(profilePayload?.role || "viewer")
+						.trim()
+						.toLowerCase() || "viewer",
 				photoURL: String(profilePayload?.photoURL || "").trim(),
 				title: String(profilePayload?.title || "").trim(),
 				teamIds: normalizeArray(profilePayload?.teamIds),
@@ -193,11 +242,21 @@ export function subscribeTeams(onData, onError) {
 export async function upsertTeam(teamId, payload) {
 	const firestore = ensureFirebaseReady();
 	const memberProfiles = normalizeTeamMembers(payload?.memberProfiles);
+	const serviceCategories = normalizeServiceCategories(
+		payload?.serviceCategories?.length
+			? payload.serviceCategories
+			: [payload?.serviceCategory || payload?.serviceType],
+	);
+	const primaryServiceCategory = serviceCategories[0] || "";
 	const data = {
 		...payload,
-		role: String(payload?.role || "").trim(),
+		serviceCategories,
+		serviceCategory: primaryServiceCategory,
+		serviceType: primaryServiceCategory,
 		memberProfiles,
-		memberIds: normalizeArray(payload?.memberIds || memberProfiles.map((member) => member.userId)),
+		memberIds: normalizeArray(
+			payload?.memberIds || memberProfiles.map((member) => member.userId),
+		),
 		updatedAt: new Date().toISOString(),
 	};
 

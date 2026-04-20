@@ -43,6 +43,18 @@ service cloud.firestore {
       allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
     }
 
+    match /teams/{teamId} {
+      // All signed-in users can read teams so service-scoped access can be resolved client-side.
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /role_permissions/{roleId} {
+      // Clients subscribe to role permissions to drive page/module visibility.
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
     match /projects/{projectId} {
       allow read: if isAdminOrPartner();
       allow create, update, delete: if isAdmin();
