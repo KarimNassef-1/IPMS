@@ -390,7 +390,7 @@ export default function TasksPage() {
               {TASK_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </div>
-          <button className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7]">Add Task</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7]">Add Task</button>
         </form>
 
         <section className="rounded-2xl border border-white/30 bg-white/80 p-4">
@@ -414,9 +414,9 @@ export default function TasksPage() {
       <div className="mt-6 space-y-3">
         {tasks.map((task) => (
           <article key={task.id} className="rounded-xl border border-white/30 bg-white/75 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h5 className="font-semibold text-slate-900">{task.name}</h5>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h5 className="font-semibold text-slate-900 break-words">{task.name}</h5>
                 <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{task.assignedTo}</span>
                   <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">{task.priority}</span>
@@ -424,12 +424,12 @@ export default function TasksPage() {
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">{task.locked ? 'Locked' : 'Unlocked'}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                 <select
                   value={task.status}
                   onChange={(event) => handleStatusChange(task, event.target.value)}
                   disabled={!canManageTask(task)}
-                  className="rounded border border-slate-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                  className="min-h-9 rounded border border-slate-200 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {TASK_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
                 </select>
@@ -437,7 +437,7 @@ export default function TasksPage() {
                   <button
                     type="button"
                     onClick={() => toggleTaskLock(task)}
-                    className="rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700"
+                    className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700"
                     title={task.locked ? 'Unlock task for deletion' : 'Lock task from deletion'}
                   >
                     {task.locked ? (
@@ -457,7 +457,7 @@ export default function TasksPage() {
                   <button
                     type="button"
                     onClick={() => notifyYoussef(task)}
-                    className="rounded bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700"
+                    className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700"
                     title="Send system notification to Youssef"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
@@ -470,7 +470,7 @@ export default function TasksPage() {
                   type="button"
                   onClick={() => removeTask(task.id)}
                   disabled={!canDeleteTask(task)}
-                  className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Delete
                 </button>
@@ -503,7 +503,7 @@ export default function TasksPage() {
                   : ASSIGNEES
                 ).map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
               </select>
-              <button className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7]">Create Daily Task</button>
+              <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7]">Create Daily Task</button>
               <p className="text-xs text-slate-500">Tasks are reset by using a new date key each day. Historical completion remains stored.</p>
             </form>
 
@@ -528,8 +528,9 @@ export default function TasksPage() {
                 <h4 className="font-bold text-slate-900">{assignee} Daily Tasks</h4>
                 <div className="mt-3 space-y-2">
                   {dailyTasksFor(assignee).map((task) => (
-                    <div key={task.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 text-sm">
-                      <div>
+                    <div key={task.id} className="rounded-lg border border-slate-200 bg-white p-2 text-sm">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
                         <label className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -544,12 +545,12 @@ export default function TasksPage() {
                         ) : null}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                         {isAdmin && String(task?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME ? (
                           <button
                             type="button"
                             onClick={() => toggleDailyTaskLock(task)}
-                            className="rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700"
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700"
                             title={task.locked ? 'Unlock daily task for deletion' : 'Lock daily task from deletion'}
                           >
                             {task.locked ? (
@@ -570,7 +571,7 @@ export default function TasksPage() {
                           <button
                             type="button"
                             onClick={() => notifyYoussefDailyTask(task)}
-                            className="rounded bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700"
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700"
                             title="Send system notification to Youssef"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
@@ -584,10 +585,11 @@ export default function TasksPage() {
                           type="button"
                           onClick={() => removeDailyTask(task.id)}
                           disabled={!canDeleteDailyTask(task)}
-                          className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex min-h-9 items-center rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Delete
                         </button>
+                      </div>
                       </div>
                     </div>
                   ))}

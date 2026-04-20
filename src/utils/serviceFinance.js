@@ -224,7 +224,13 @@ export function calculateServiceRecognizedPaidRevenue(service) {
 	// fallback to full recognition.
 	if (recognizedGross <= 0) {
 		if (useInstallmentRecognition) return 0;
-		return service.paymentStatus === "paid" ? totalAgencyShare : 0;
+		const normalizedPaymentStatus = String(service.paymentStatus || "")
+			.trim()
+			.toLowerCase();
+		return normalizedPaymentStatus === "paid" ||
+			normalizedPaymentStatus === "completed"
+			? totalAgencyShare
+			: 0;
 	}
 
 	if (service.deliveryType === "outsource") {

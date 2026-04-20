@@ -468,8 +468,8 @@ export default function DashboardPage() {
     >
       <section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-sky-50">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-lg font-black text-slate-900">Executive Snapshot</h3>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          <h3 className="text-base font-black text-slate-900 sm:text-lg">Executive Snapshot</h3>
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:gap-2 sm:text-xs">
             <span className="rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-700">
               Active Projects: {dashboardData.activeProjects}
             </span>
@@ -486,11 +486,11 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[2fr_1fr]">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
             {liveCards.map((card) => (
               <article key={card.title} className="ip-stat-card">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{card.title}</p>
-                <p className={`mt-2 text-2xl font-black ${card.accent}`}>{card.value}</p>
+                <p className={`mt-2 break-words text-xl font-black sm:text-2xl ${card.accent}`}>{card.value}</p>
               </article>
             ))}
           </div>
@@ -536,11 +536,11 @@ export default function DashboardPage() {
 
           {dashboardData.recognizedServices.slice(0, 6).map((service) => (
             <article key={service.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-900">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-semibold text-slate-900 break-words">
                   {service.projectName} - {service.serviceName}
                 </p>
-                <span className="rounded-full bg-sky-100 px-2 py-1 text-[11px] font-semibold text-sky-700">
+                <span className="inline-flex w-fit rounded-full bg-sky-100 px-2 py-1 text-[11px] font-semibold text-sky-700">
                   Recognized {formatCurrency(service.recognizedPaid)}
                 </span>
               </div>
@@ -568,7 +568,31 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="ip-table-wrap mt-4">
+        <div className="mt-4 space-y-2 md:hidden">
+          {dashboardData.projectFinancialRows.length === 0 ? (
+            <p className="text-sm text-slate-600">No project financial data yet.</p>
+          ) : (
+            dashboardData.projectFinancialRows.map((row) => (
+              <article key={row.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900 break-words">{row.projectName}</p>
+                  <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+                    {row.status}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Services: <span className="font-semibold">{row.serviceCount}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Contract: <span className="font-semibold">{formatCurrency(row.contractValue)}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-emerald-700">Share: <span className="font-semibold">{formatCurrency(row.agencyShare)}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-sky-700">Recognized: <span className="font-semibold">{formatCurrency(row.recognizedPaid)}</span></p>
+                  <p className="col-span-2 rounded-lg bg-white px-2 py-1 text-amber-700">Pending: <span className="font-semibold">{formatCurrency(row.pendingShare)}</span></p>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="ip-table-wrap mt-4 hidden md:block">
           <table className="ip-table">
             <thead>
               <tr>
@@ -654,7 +678,7 @@ export default function DashboardPage() {
                   <p className="mt-1 text-xs text-slate-600">{alert.detail}</p>
                   <Link
                     to={alert.to}
-                    className="mt-2 inline-flex rounded-lg bg-[#f0e9ff] px-2.5 py-1 text-xs font-semibold text-[#6f39e7] hover:bg-[#e7dcff]"
+                    className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-[#f0e9ff] px-3 py-1.5 text-xs font-semibold text-[#6f39e7] transition hover:bg-[#e7dcff]"
                   >
                     {alert.actionLabel}
                   </Link>
@@ -672,7 +696,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
             <div className="rounded-xl bg-emerald-50 p-2">
               <p className="text-emerald-700">Incoming</p>
               <p className="mt-1 font-black text-emerald-800">{formatCurrency(missionData.next30Incoming)}</p>
@@ -695,12 +719,12 @@ export default function DashboardPage() {
             ) : (
               missionData.next30Calendar.map((event, index) => (
                 <div key={`${event.source}-${event.projectName}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-slate-900">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs font-semibold text-slate-900 break-words">
                       {event.projectName} - {event.serviceName}
                     </p>
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${
+                      className={`inline-flex w-fit rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${
                         event.type === 'incoming'
                           ? 'bg-emerald-100 text-emerald-700'
                           : 'bg-rose-100 text-rose-700'
@@ -723,19 +747,19 @@ export default function DashboardPage() {
         <h4 className="font-bold text-slate-900">Quick Actions</h4>
         <p className="mt-1 text-xs text-slate-500">Jump into high-impact workflows in one click.</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          <Link to="/projects" className="rounded-xl bg-[#f0e9ff] px-3 py-2 text-center text-xs font-semibold text-[#6f39e7] hover:bg-[#e7dcff]">
+          <Link to="/projects" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#f0e9ff] px-3 py-2 text-center text-sm font-semibold text-[#6f39e7] transition hover:bg-[#e7dcff]">
             Add / Update Service
           </Link>
-          <Link to="/financials" className="rounded-xl bg-sky-100 px-3 py-2 text-center text-xs font-semibold text-sky-700 hover:bg-sky-200">
+          <Link to="/financials" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-100 px-3 py-2 text-center text-sm font-semibold text-sky-700 transition hover:bg-sky-200">
             Review Recognition
           </Link>
-          <Link to="/expenses" className="rounded-xl bg-rose-100 px-3 py-2 text-center text-xs font-semibold text-rose-700 hover:bg-rose-200">
+          <Link to="/expenses" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-rose-100 px-3 py-2 text-center text-sm font-semibold text-rose-700 transition hover:bg-rose-200">
             Record Expense
           </Link>
-          <Link to="/tasks" className="rounded-xl bg-amber-100 px-3 py-2 text-center text-xs font-semibold text-amber-700 hover:bg-amber-200">
+          <Link to="/tasks" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-amber-100 px-3 py-2 text-center text-sm font-semibold text-amber-700 transition hover:bg-amber-200">
             Create Follow-up Task
           </Link>
-          <Link to="/team-users" className="rounded-xl bg-emerald-100 px-3 py-2 text-center text-xs font-semibold text-emerald-700 hover:bg-emerald-200">
+          <Link to="/team-users" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-100 px-3 py-2 text-center text-sm font-semibold text-emerald-700 transition hover:bg-emerald-200">
             Team Access Setup
           </Link>
         </div>

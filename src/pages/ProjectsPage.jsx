@@ -194,7 +194,7 @@ export default function ProjectsPage() {
     <button
       type="button"
       onClick={() => setShowComposer((current) => !current)}
-      className="group relative inline-flex h-7 w-7 shrink-0 self-center items-center justify-center rounded-full border border-slate-300/90 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-700 shadow-[0_8px_16px_-14px_rgba(15,23,42,0.8)] transition duration-200 hover:-translate-y-[1px] hover:border-slate-400 hover:shadow-[0_10px_18px_-14px_rgba(15,23,42,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+      className="group relative inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-full border border-slate-300/90 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-700 shadow-[0_8px_16px_-14px_rgba(15,23,42,0.8)] transition duration-200 hover:-translate-y-[1px] hover:border-slate-400 hover:shadow-[0_10px_18px_-14px_rgba(15,23,42,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 sm:h-7 sm:w-7"
       title={isComposerVisible ? 'Hide project and service forms' : 'Show project and service forms'}
       aria-label={isComposerVisible ? 'Hide project and service forms' : 'Show project and service forms'}
       aria-pressed={isComposerVisible}
@@ -1057,7 +1057,7 @@ export default function ProjectsPage() {
               <button
                 type="button"
                 onClick={cancelEditProject}
-                className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                className="inline-flex min-h-9 items-center rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
               >
                 Cancel Edit
               </button>
@@ -1094,7 +1094,7 @@ export default function ProjectsPage() {
           <button
             type="submit"
             disabled={submittingProject || !isAdmin}
-            className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submittingProject
               ? editingProjectId
@@ -1113,7 +1113,7 @@ export default function ProjectsPage() {
               <button
                 type="button"
                 onClick={cancelEditService}
-                className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                className="inline-flex min-h-9 items-center rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
               >
                 Cancel Edit
               </button>
@@ -1397,9 +1397,9 @@ export default function ProjectsPage() {
           {serviceForm.chargeType === 'paid' && (serviceForm.billingType === 'one-time' || serviceForm.billingType === 'hybrid') ? (
             <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
               <p className="text-xs font-semibold text-slate-700">One-time payment part</p>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs font-semibold text-slate-700">Payment setup</p>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select
                     name="paymentMode"
                     value={serviceForm.paymentMode}
@@ -1511,7 +1511,7 @@ export default function ProjectsPage() {
           <button
             type="submit"
             disabled={submittingService || !isAdmin}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submittingService
               ? editingServiceId
@@ -1617,8 +1617,8 @@ export default function ProjectsPage() {
         {visibleProjects.map((project) => (
           <article key={project.id} className="rounded-2xl border border-white/35 bg-white/82 p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h4 className="text-base font-bold text-slate-900 sm:text-lg">{project.projectName}</h4>
+              <div className="min-w-0">
+                <h4 className="text-base font-bold text-slate-900 break-words sm:text-lg">{project.projectName}</h4>
                 <p className="text-xs text-slate-600 sm:text-sm">{project.clientName} • {project.status} • {normalizeProjectType(project.type || '')}</p>
                 <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-2 xl:grid-cols-5">
                   <div className="rounded-lg bg-slate-100 px-2 py-1.5 font-semibold text-slate-700">
@@ -1644,8 +1644,8 @@ export default function ProjectsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                {isAdmin ? <button type="button" onClick={() => startEditProject(project)} className="rounded-lg bg-amber-500 px-3 py-1 text-xs font-semibold text-white">Edit</button> : null}
-                {isAdmin ? <button type="button" onClick={() => removeProject(project.id)} className="rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white">Delete</button> : null}
+                {isAdmin ? <button type="button" onClick={() => startEditProject(project)} className="inline-flex min-h-9 items-center rounded-lg bg-amber-500 px-3 py-1 text-xs font-semibold text-white">Edit</button> : null}
+                {isAdmin ? <button type="button" onClick={() => removeProject(project.id)} className="inline-flex min-h-9 items-center rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white">Delete</button> : null}
               </div>
             </div>
 
@@ -1655,11 +1655,11 @@ export default function ProjectsPage() {
 
                 return (
                 <div key={service.id} className="rounded-xl border border-slate-200 bg-white/90 p-2.5 text-sm shadow-[0_8px_20px_-18px_rgba(15,23,42,0.55)]">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-slate-900">{service.serviceName}</p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="font-semibold text-slate-900 break-words">{service.serviceName}</p>
                     <div className="flex gap-2">
-                      {isAdmin ? <button type="button" onClick={() => startEditService(service)} className="rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">Edit</button> : null}
-                      {isAdmin ? <button type="button" onClick={() => removeService(service.id)} className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Remove</button> : null}
+                      {isAdmin ? <button type="button" onClick={() => startEditService(service)} className="inline-flex min-h-9 items-center rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">Edit</button> : null}
+                      {isAdmin ? <button type="button" onClick={() => removeService(service.id)} className="inline-flex min-h-9 items-center rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Remove</button> : null}
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
@@ -1708,7 +1708,7 @@ export default function ProjectsPage() {
                       href={service.websiteLinkUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-2 inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
+                      className="mt-2 inline-flex min-h-9 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 transition hover:bg-sky-100"
                     >
                       <span>{service.websiteLinkName || 'Website Link'}</span>
                       <span aria-hidden="true">↗</span>

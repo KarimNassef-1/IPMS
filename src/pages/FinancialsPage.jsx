@@ -132,6 +132,14 @@ export default function FinancialsPage() {
     [excludedPlannerServices],
   )
 
+  const excludedAgencyShareTotal = useMemo(
+    () =>
+      financialServices
+        .filter((service) => service.includeInFinancialPlanner === false)
+        .reduce((sum, service) => sum + (Number(service.agencyShareTotal) || 0), 0),
+    [financialServices],
+  )
+
   const manualDistribution = useMemo(() => {
     const base = {
       karimSalary: 0,
@@ -279,7 +287,7 @@ export default function FinancialsPage() {
             Planner Included: {formatCurrency(plannerRecognizedTotal)}
           </span>
           <span className="rounded-full bg-rose-100 px-3 py-1 font-semibold text-rose-700">
-            Excluded: {formatCurrency(excludedRecognizedTotal)}
+            Excluded: {formatCurrency(excludedAgencyShareTotal)}
           </span>
           <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">
             Paid Services: {paidServices.length}
@@ -335,11 +343,11 @@ export default function FinancialsPage() {
           {!loading && paidServices.length === 0 ? <p className="text-sm text-slate-600">No paid services yet.</p> : null}
           {paidServices.map((service) => (
             <div key={service.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-900">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-semibold text-slate-900 break-words">
                   {projectNameById[service.projectId] || 'Unknown project'}
                 </p>
-                <div className="flex items-center gap-2 text-[11px]">
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
                   {service.includeInFinancialPlanner === false ? (
                     <span className="rounded-full bg-rose-100 px-2 py-1 font-semibold text-rose-700">Excluded</span>
                   ) : service.allocationMode === 'manual' ? (
@@ -364,7 +372,37 @@ export default function FinancialsPage() {
       <section className="ip-surface-section mt-6">
         <h4 className="font-bold text-slate-900">Calculation Audit</h4>
         <p className="mt-1 text-xs text-slate-500">Service-by-service budget contribution breakdown.</p>
-        <div className="ip-table-wrap mt-4">
+
+        <div className="mt-4 space-y-2 md:hidden">
+          {serviceAllocationRows.length === 0 ? (
+            <p className="text-sm text-slate-600">No planner-included paid services yet.</p>
+          ) : (
+            serviceAllocationRows.map((item) => (
+              <article key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900 break-words">
+                    {item.projectName} - {item.serviceName}
+                  </p>
+                  <span className={item.mode === 'manual' ? 'rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-700' : 'rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700'}>
+                    {item.mode}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Recognized: <span className="font-semibold">{formatCurrency(item.recognized)}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Karim: <span className="font-semibold">{formatCurrency(item.karimSalary)}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Youssef: <span className="font-semibold">{formatCurrency(item.youssefSalary)}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Ops: <span className="font-semibold">{formatCurrency(item.agencyOperations)}</span></p>
+                  <p className="rounded-lg bg-white px-2 py-1 text-slate-700">Marketing: <span className="font-semibold">{formatCurrency(item.marketingSales)}</span></p>
+                  <p className={item.mode === 'manual' && item.manualDifference !== 0 ? 'rounded-lg bg-white px-2 py-1 font-semibold text-amber-700' : 'rounded-lg bg-white px-2 py-1 text-slate-500'}>
+                    Manual Diff: {item.mode === 'manual' ? formatCurrency(item.manualDifference) : '-'}
+                  </p>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="ip-table-wrap mt-4 hidden md:block">
           <table className="ip-table">
             <thead>
               <tr>

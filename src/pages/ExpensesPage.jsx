@@ -106,7 +106,7 @@ export default function ExpensesPage() {
       <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Total Expenses</p>
-          <p className="mt-1 text-2xl font-black text-rose-700">{formatCurrency(totalExpenses)}</p>
+          <p className="mt-1 break-words text-xl font-black text-rose-700 sm:text-2xl">{formatCurrency(totalExpenses)}</p>
         </div>
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Records</p>
@@ -114,7 +114,7 @@ export default function ExpensesPage() {
         </div>
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Average Expense</p>
-          <p className="mt-1 text-2xl font-black text-sky-700">{formatCurrency(averageExpense)}</p>
+          <p className="mt-1 break-words text-xl font-black text-sky-700 sm:text-2xl">{formatCurrency(averageExpense)}</p>
         </div>
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Top Category</p>
@@ -138,7 +138,7 @@ export default function ExpensesPage() {
             <input value={form.paidBy} onChange={(event) => setForm((current) => ({ ...current, paidBy: event.target.value }))} placeholder="Paid by" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           </div>
           <textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes" className="h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          <button className="rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#6f39e7]">Save Expense</button>
+          <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7]">Save Expense</button>
           <p className="text-xs text-slate-500">Tracked total: {formatCurrency(totalExpenses)}</p>
         </form>
 
@@ -146,9 +146,9 @@ export default function ExpensesPage() {
           <h4 className="font-bold text-slate-900">Expense Records</h4>
           {expenses.map((expense) => (
             <div key={expense.id} className="rounded-lg border border-slate-200 bg-white p-2.5 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold text-slate-900">{expense.name}</p>
-                <button type="button" onClick={() => removeExpense(expense.id)} className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Delete</button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-semibold text-slate-900 break-words">{expense.name}</p>
+                <button type="button" onClick={() => removeExpense(expense.id)} className="inline-flex min-h-9 w-fit items-center rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Delete</button>
               </div>
               <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{expense.category}</span>
