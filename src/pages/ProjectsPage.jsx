@@ -5,6 +5,8 @@ import {
   createProject,
   deleteProject,
   deleteService,
+  restoreProject,
+  restoreService,
   getAllServices,
   getProjects,
   updateService,
@@ -33,6 +35,10 @@ function createInstallment() {
     dueDate: '',
     status: 'pending',
   }
+}
+
+function normalizeProjectType(value) {
+  return value === 'Mix' ? 'One-time + Monthly' : value
 }
 
 function createInitialServiceForm() {
@@ -156,6 +162,12 @@ export default function ProjectsPage() {
   const [serviceError, setServiceError] = useState('')
   const [projectSuccess, setProjectSuccess] = useState('')
   const [serviceSuccess, setServiceSuccess] = useState('')
+  const [projectSearch, setProjectSearch] = useState('')
+  const [projectStatusFilter, setProjectStatusFilter] = useState('all')
+  const [projectTypeFilter, setProjectTypeFilter] = useState('all')
+  const [projectServiceCategoryFilter, setProjectServiceCategoryFilter] = useState('all')
+  const [projectDeliveryFilter, setProjectDeliveryFilter] = useState('all')
+  const [projectSort, setProjectSort] = useState('updated_desc')
   const [editingProjectId, setEditingProjectId] = useState(null)
   const [editingServiceId, setEditingServiceId] = useState(null)
   const [showComposer, setShowComposer] = useState(false)
@@ -231,11 +243,21 @@ export default function ProjectsPage() {
   }, [serviceError, toast])
 
   useEffect(() => {
-    if (projectSuccess) toast.success(projectSuccess)
+    if (!projectSuccess) return
+    const handledByUndoToast =
+      projectSuccess.startsWith('Deleted project:') ||
+      projectSuccess.startsWith('Restored project:')
+    if (handledByUndoToast) return
+    toast.success(projectSuccess)
   }, [projectSuccess, toast])
 
   useEffect(() => {
-    if (serviceSuccess) toast.success(serviceSuccess)
+    if (!serviceSuccess) return
+    const handledByUndoToast =
+      serviceSuccess.startsWith('Deleted service:') ||
+      serviceSuccess.startsWith('Restored service:')
+    if (handledByUndoToast) return
+    toast.success(serviceSuccess)
   }, [serviceSuccess, toast])
 
   const revenueBreakdownByProjectId = useMemo(() => {
@@ -246,6 +268,7 @@ export default function ProjectsPage() {
           agencyShareTotal: 0,
           inhouseRevenue: 0,
           outsourceShare: 0,
+          outsourcePayout: 0,
           freeValue: 0,
         }
       }
@@ -264,6 +287,7 @@ export default function ProjectsPage() {
 
         if (service.deliveryType === 'outsource') {
           bucket.outsourceShare += agencyRevenue
+          bucket.outsourcePayout += Math.max(contractValue - agencyRevenue, 0)
         } else {
           bucket.inhouseRevenue += agencyRevenue
         }
@@ -272,6 +296,148 @@ export default function ProjectsPage() {
       return acc
     }, {})
   }, [services])
+
+  const servicesByProjectId = useMemo(() => {
+    return services.reduce((acc, service) => {
+      if (!acc[service.projectId]) acc[service.projectId] = []
+      acc[service.projectId].push(service)
+      return acc
+    }, {})
+  }, [services])
+
+  const availableServiceCategories = useMemo(() => {
+    return Array.from(
+      new Set(
+        services
+          .map((service) => String(service.serviceCategory || '').trim())
+          .filter(Boolean),
+      ),
+    ).sort((left, right) => left.localeCompare(right))
+  }, [services])
+
+  const visibleProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase()
+    const filtered = projects.filter((project) => {
+      const projectServices = servicesByProjectId[project.id] || []
+      const normalizedProjectType = normalizeProjectType(project.type || '')
+
+      if (projectStatusFilter !== 'all' && (project.status || '') !== projectStatusFilter) {
+        return false
+      }
+
+      if (projectTypeFilter !== 'all' && normalizedProjectType !== projectTypeFilter) {
+        return false
+      }
+
+      if (projectServiceCategoryFilter !== 'all') {
+        const hasCategory = projectServices.some(
+          (service) => String(service.serviceCategory || '').trim() === projectServiceCategoryFilter,
+        )
+        if (!hasCategory) return false
+      }
+
+      if (projectDeliveryFilter !== 'all') {
+        const hasInhouse = projectServices.some((service) => service.deliveryType !== 'outsource')
+        const hasOutsource = projectServices.some((service) => service.deliveryType === 'outsource')
+
+        const deliveryProfile = hasInhouse && hasOutsource
+          ? 'mix'
+          : hasOutsource
+            ? 'outsource'
+            : hasInhouse
+              ? 'inhouse'
+              : 'none'
+
+        if (deliveryProfile !== projectDeliveryFilter) return false
+      }
+
+      if (!query) return true
+
+      const haystack = [
+        project.projectName,
+        project.clientName,
+        project.projectType,
+        project.status,
+        normalizedProjectType,
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ')
+
+      return haystack.includes(query)
+    })
+
+    const timeValue = (value) => {
+      if (!value) return Number.NaN
+      const parsed = Date.parse(value)
+      return Number.isNaN(parsed) ? Number.NaN : parsed
+    }
+
+    const alpha = (value) => String(value || '').trim().toLowerCase()
+
+    return [...filtered].sort((left, right) => {
+      if (projectSort === 'name_asc') {
+        return alpha(left.projectName).localeCompare(alpha(right.projectName))
+      }
+
+      if (projectSort === 'name_desc') {
+        return alpha(right.projectName).localeCompare(alpha(left.projectName))
+      }
+
+      if (projectSort === 'deadline_asc') {
+        const leftTime = timeValue(left.deadline)
+        const rightTime = timeValue(right.deadline)
+        if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0
+        if (Number.isNaN(leftTime)) return 1
+        if (Number.isNaN(rightTime)) return -1
+        return leftTime - rightTime
+      }
+
+      if (projectSort === 'deadline_desc') {
+        const leftTime = timeValue(left.deadline)
+        const rightTime = timeValue(right.deadline)
+        if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0
+        if (Number.isNaN(leftTime)) return 1
+        if (Number.isNaN(rightTime)) return -1
+        return rightTime - leftTime
+      }
+
+      if (projectSort === 'agency_share_desc' || projectSort === 'agency_share_asc') {
+        const leftValue = Number(revenueBreakdownByProjectId[left.id]?.agencyShareTotal) || 0
+        const rightValue = Number(revenueBreakdownByProjectId[right.id]?.agencyShareTotal) || 0
+        return projectSort === 'agency_share_desc' ? rightValue - leftValue : leftValue - rightValue
+      }
+
+      if (projectSort === 'contract_value_desc' || projectSort === 'contract_value_asc') {
+        const leftValue = Number(revenueBreakdownByProjectId[left.id]?.totalContractValue) || 0
+        const rightValue = Number(revenueBreakdownByProjectId[right.id]?.totalContractValue) || 0
+        return projectSort === 'contract_value_desc' ? rightValue - leftValue : leftValue - rightValue
+      }
+
+      if (projectSort === 'outsource_share_desc' || projectSort === 'outsource_share_asc') {
+        const leftValue = Number(revenueBreakdownByProjectId[left.id]?.outsourcePayout) || 0
+        const rightValue = Number(revenueBreakdownByProjectId[right.id]?.outsourcePayout) || 0
+        return projectSort === 'outsource_share_desc' ? rightValue - leftValue : leftValue - rightValue
+      }
+
+      const leftTime = timeValue(left.updatedAt || left.createdAt || left.startDate)
+      const rightTime = timeValue(right.updatedAt || right.createdAt || right.startDate)
+      if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0
+      if (Number.isNaN(leftTime)) return 1
+      if (Number.isNaN(rightTime)) return -1
+      if (projectSort === 'updated_asc') return leftTime - rightTime
+      return rightTime - leftTime
+    })
+  }, [
+    projectDeliveryFilter,
+    projectSearch,
+    projectServiceCategoryFilter,
+    projectSort,
+    projectStatusFilter,
+    projectTypeFilter,
+    projects,
+    revenueBreakdownByProjectId,
+    servicesByProjectId,
+  ])
 
   function handleProjectInput(event) {
     const { name, value, type, checked } = event.target
@@ -653,8 +819,29 @@ export default function ProjectsPage() {
       return
     }
 
-    await deleteProject(projectId)
-    await loadData()
+    const project = projects.find((item) => item.id === projectId)
+    if (!project) return
+
+    try {
+      setProjectError('')
+      await deleteProject(projectId)
+      setProjectSuccess(`Deleted project: ${project.projectName || 'Project'}`)
+
+      toast.notify(`Deleted project: ${project.projectName || 'Project'}`, {
+        duration: 10000,
+        actionLabel: 'Undo',
+        onAction: async () => {
+          await restoreProject(project)
+          await loadData()
+          setProjectSuccess(`Restored project: ${project.projectName || 'Project'}`)
+          toast.success(`Restored project: ${project.projectName || 'Project'}`)
+        },
+      })
+
+      await loadData()
+    } catch (error) {
+      setProjectError(error?.message || 'Failed to delete project.')
+    }
   }
 
   async function removeService(serviceId) {
@@ -663,12 +850,33 @@ export default function ProjectsPage() {
       return
     }
 
-    await deleteService(serviceId)
-    if (editingServiceId === serviceId) {
-      setEditingServiceId(null)
-      setServiceForm(createInitialServiceForm())
+    const service = services.find((item) => item.id === serviceId)
+    if (!service) return
+
+    try {
+      setServiceError('')
+      await deleteService(serviceId)
+      if (editingServiceId === serviceId) {
+        setEditingServiceId(null)
+        setServiceForm(createInitialServiceForm())
+      }
+      setServiceSuccess(`Deleted service: ${service.serviceName || 'Service'}`)
+
+      toast.notify(`Deleted service: ${service.serviceName || 'Service'}`, {
+        duration: 10000,
+        actionLabel: 'Undo',
+        onAction: async () => {
+          await restoreService(service)
+          await loadData()
+          setServiceSuccess(`Restored service: ${service.serviceName || 'Service'}`)
+          toast.success(`Restored service: ${service.serviceName || 'Service'}`)
+        },
+      })
+
+      await loadData()
+    } catch (error) {
+      setServiceError(error?.message || 'Failed to delete service.')
     }
-    await loadData()
   }
 
   function startEditService(service) {
@@ -805,7 +1013,7 @@ export default function ProjectsPage() {
       clientName: project.clientName || '',
       projectName: project.projectName || '',
       projectType: project.projectType || '',
-      type: project.type || PROJECT_TYPES[0],
+      type: normalizeProjectType(project.type || PROJECT_TYPES[0]),
       startDate: project.startDate || '',
       deadline: project.deadline || '',
       status: project.status || PROJECT_STATUSES[0],
@@ -871,7 +1079,7 @@ export default function ProjectsPage() {
             <input name="deadline" type="date" value={projectForm.deadline} onChange={handleProjectInput} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <textarea name="notes" value={projectForm.notes} onChange={handleProjectInput} placeholder="Notes" className="h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          {projectForm.type === 'Monthly' ? (
+          {projectForm.type === 'Monthly' || projectForm.type === 'One-time + Monthly' ? (
             <div className="grid gap-2 text-sm text-slate-700">
               <label className="flex items-center gap-2">
                 <input type="checkbox" name="recurringPaused" checked={projectForm.recurringPaused} onChange={handleProjectInput} />
@@ -1319,13 +1527,99 @@ export default function ProjectsPage() {
       </div>
 
       <div className="mt-6 space-y-4">
+        <div className="rounded-2xl border border-white/35 bg-white/80 p-3 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+            <input
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+              placeholder="Search by project, client, type..."
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm xl:col-span-2"
+            />
+            <select
+              value={projectStatusFilter}
+              onChange={(event) => setProjectStatusFilter(event.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All statuses</option>
+              {PROJECT_STATUSES.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+            <select
+              value={projectTypeFilter}
+              onChange={(event) => setProjectTypeFilter(event.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All billing types</option>
+              {PROJECT_TYPES.map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+            <select
+              value={projectServiceCategoryFilter}
+              onChange={(event) => setProjectServiceCategoryFilter(event.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All service categories</option>
+              {availableServiceCategories.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+            <select
+              value={projectDeliveryFilter}
+              onChange={(event) => setProjectDeliveryFilter(event.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All delivery modes</option>
+              <option value="inhouse">Inhouse only</option>
+              <option value="outsource">Outsource only</option>
+              <option value="mix">Mix (Inhouse + Outsource)</option>
+            </select>
+            <select
+              value={projectSort}
+              onChange={(event) => setProjectSort(event.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="agency_share_desc">Highest agency share</option>
+              <option value="agency_share_asc">Lowest agency share</option>
+              <option value="contract_value_desc">Highest contract value</option>
+              <option value="contract_value_asc">Lowest contract value</option>
+              <option value="outsource_share_desc">Highest outsource payout</option>
+              <option value="outsource_share_asc">Lowest outsource payout</option>
+              <option value="updated_desc">Latest updated</option>
+              <option value="updated_asc">Oldest updated</option>
+              <option value="deadline_asc">Nearest deadline</option>
+              <option value="deadline_desc">Farthest deadline</option>
+              <option value="name_asc">Project name A-Z</option>
+              <option value="name_desc">Project name Z-A</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                setProjectSearch('')
+                setProjectStatusFilter('all')
+                setProjectTypeFilter('all')
+                setProjectServiceCategoryFilter('all')
+                setProjectDeliveryFilter('all')
+                setProjectSort('updated_desc')
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Reset
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-slate-600">
+            Showing {visibleProjects.length} of {projects.length} projects.
+          </p>
+        </div>
+
         {loading ? <p className="text-sm text-slate-600">Loading projects...</p> : null}
-        {projects.map((project) => (
+        {visibleProjects.map((project) => (
           <article key={project.id} className="rounded-2xl border border-white/35 bg-white/82 p-4 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h4 className="text-base font-bold text-slate-900 sm:text-lg">{project.projectName}</h4>
-                <p className="text-xs text-slate-600 sm:text-sm">{project.clientName} • {project.status} • {project.type}</p>
+                <p className="text-xs text-slate-600 sm:text-sm">{project.clientName} • {project.status} • {normalizeProjectType(project.type || '')}</p>
                 <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-2 xl:grid-cols-5">
                   <div className="rounded-lg bg-slate-100 px-2 py-1.5 font-semibold text-slate-700">
                     <p className="text-[10px] uppercase tracking-wider text-slate-500">Contract</p>
@@ -1341,7 +1635,7 @@ export default function ProjectsPage() {
                   </div>
                   <div className="rounded-lg bg-amber-100 px-2 py-1.5 font-semibold text-amber-700">
                     <p className="text-[10px] uppercase tracking-wider text-amber-700/80">Outsource</p>
-                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.outsourceShare || 0)}</p>
+                    <p>{formatCurrency(revenueBreakdownByProjectId[project.id]?.outsourcePayout || 0)}</p>
                   </div>
                   <div className="rounded-lg bg-emerald-50 px-2 py-1.5 font-semibold text-emerald-700">
                     <p className="text-[10px] uppercase tracking-wider text-emerald-700/80">Free Value</p>
@@ -1481,6 +1775,9 @@ export default function ProjectsPage() {
           </article>
         ))}
         {!loading && projects.length === 0 ? <p className="text-sm text-slate-600">No projects yet.</p> : null}
+        {!loading && projects.length > 0 && visibleProjects.length === 0 ? (
+          <p className="text-sm text-slate-600">No projects match the selected filters.</p>
+        ) : null}
       </div>
       <div className="mt-4 text-xs text-slate-500">
         Monthly recurring projects are tracked with pause/cancel flags and ready for Cloud Function automation.

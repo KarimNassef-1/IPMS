@@ -4,11 +4,13 @@ import {
   createDailyTask,
   deleteDailyTask,
   getDailyTasks,
+  restoreDailyTask,
   toggleDailyTask,
 } from '../services/taskService'
 import { ASSIGNEES } from '../utils/constants'
 import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10)
@@ -16,6 +18,7 @@ function todayKey() {
 
 export default function DailyTasksPage() {
   const { user } = useAuth()
+  const toast = useToast()
   const [allDailyTasks, setAllDailyTasks] = useState([])
   const [form, setForm] = useState({ name: '', assignedTo: ASSIGNEES[0] })
 
@@ -69,8 +72,21 @@ export default function DailyTasksPage() {
   }
 
   async function removeTask(taskId) {
+    const task = allDailyTasks.find((item) => item.id === taskId)
+    if (!task) return
+
     await deleteDailyTask(taskId)
     await loadDailyTasks()
+
+    toast.notify(`Deleted daily task: ${task.name || 'Task'}`, {
+      duration: 10000,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        await restoreDailyTask(task)
+        await loadDailyTasks()
+        toast.success(`Restored daily task: ${task.name || 'Task'}`)
+      },
+    })
   }
 
   function tasksFor(assignee) {

@@ -64,6 +64,8 @@ export function ToastProvider({ children }) {
         message: safeMessage,
         type,
         duration,
+        actionLabel: String(options.actionLabel || '').trim(),
+        onAction: typeof options.onAction === 'function' ? options.onAction : null,
       },
     ])
 
@@ -101,6 +103,21 @@ export function ToastProvider({ children }) {
                   {style.icon}
                 </div>
                 <p className={`min-w-0 flex-1 text-xs font-medium ${style.text}`}>{toast.message}</p>
+                {toast.actionLabel && toast.onAction ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await toast.onAction()
+                      } finally {
+                        dismissToast(toast.id)
+                      }
+                    }}
+                    className="shrink-0 rounded-full border border-[#d8c8ff] bg-gradient-to-r from-[#f7f1ff] to-white px-3 py-1 text-[11px] font-semibold text-[#5a2fd6] shadow-sm transition hover:-translate-y-0.5 hover:border-[#b79bff] hover:from-[#ede2ff] hover:to-[#f9f6ff] hover:shadow"
+                  >
+                    {toast.actionLabel}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => dismissToast(toast.id)}

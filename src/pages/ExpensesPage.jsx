@@ -1,13 +1,15 @@
 import ModuleShell from '../components/layout/ModuleShell'
 import { useEffect, useMemo, useState } from 'react'
-import { addExpense, deleteExpense, getExpenses } from '../services/financeService'
+import { addExpense, deleteExpense, getExpenses, restoreExpense } from '../services/financeService'
 import { EXPENSE_CATEGORIES } from '../utils/constants'
 import { formatCurrency, parseMoney } from '../utils/helpers'
 import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
 
 export default function ExpensesPage() {
   const { user } = useAuth()
+  const toast = useToast()
   const [expenses, setExpenses] = useState([])
   const [form, setForm] = useState({
     name: '',
@@ -79,8 +81,21 @@ export default function ExpensesPage() {
   }
 
   async function removeExpense(expenseId) {
+    const expense = expenses.find((item) => item.id === expenseId)
+    if (!expense) return
+
     await deleteExpense(expenseId)
     await loadExpenses()
+
+    toast.notify(`Deleted expense: ${expense.name || 'Expense'}`, {
+      duration: 10000,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        await restoreExpense(expense)
+        await loadExpenses()
+        toast.success(`Restored expense: ${expense.name || 'Expense'}`)
+      },
+    })
   }
 
   return (

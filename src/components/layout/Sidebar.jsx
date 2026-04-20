@@ -145,11 +145,20 @@ function NavIcon({ name, isActive }) {
 }
 
 export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
-  const { isAdmin, hasAccess } = useAuth()
+  const { isAdmin, hasAccess, logout } = useAuth()
   const { pathname } = useLocation()
   const [openMenus, setOpenMenus] = useState({ financials: true })
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [tooltip, setTooltip] = useState(null)
+
+  async function handleMobileLogout() {
+    try {
+      await logout()
+      setMobileMenuOpen(false)
+    } catch (error) {
+      console.error('Logout failed:', error)
+    }
+  }
 
   const filteredItems = filterNavigationByRole(navigationItems, isAdmin).filter((item) => {
     const permissionByRoute = {
@@ -333,7 +342,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
       </button>
 
       <aside
-        className={`fixed left-0 top-0 z-50 h-full w-[min(88vw,20rem)] border-r border-white/45 bg-white/68 p-4 shadow-2xl shadow-[#6f39e7]/20 backdrop-blur-2xl transition-transform duration-300 lg:hidden ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed left-0 top-0 z-50 flex h-full w-[min(88vw,20rem)] flex-col border-r border-white/45 bg-white/68 p-4 shadow-2xl shadow-[#6f39e7]/20 backdrop-blur-2xl transition-transform duration-300 lg:hidden ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="mb-3 flex shrink-0 items-center justify-between border-b border-white/65 pb-3">
           <img src="/ip-badge.png" alt="Infinite Pixels badge" className="w-44 h-auto max-w-[220px] object-contain" />
@@ -346,7 +355,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
           </button>
         </div>
 
-        <nav className="ip-sidebar-scroll h-[calc(100%-6rem)] space-y-1.5 overflow-y-auto pr-1">
+        <nav className="ip-sidebar-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {filteredItems.map((item) => (
             <div key={item.to}>
               <NavLink
@@ -420,6 +429,16 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
             </div>
           ))}
         </nav>
+
+        <div className="mt-3 shrink-0 border-t border-white/65 pt-3">
+          <button
+            type="button"
+            onClick={handleMobileLogout}
+            className="w-full rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+          >
+            Log out
+          </button>
+        </div>
       </aside>
 
       {tooltip ? (

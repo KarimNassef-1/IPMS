@@ -4,6 +4,8 @@ import {
   createManagedAuthUser,
   deleteTeam,
   deleteUser,
+  restoreTeam,
+  restoreUser,
   setRolePermissions,
   subscribeRolePermissions,
   subscribeTeams,
@@ -428,9 +430,19 @@ export default function TeamUsersPage() {
   async function onDeleteUser(userId) {
     if (!window.confirm('Delete this user profile?')) return
 
+    const targetUser = users.find((item) => item.id === userId)
+    if (!targetUser) return
+
     try {
       await deleteUser(userId)
-      setStatus('User deleted.')
+      toast.notify(`Deleted user: ${targetUser.name || targetUser.email || 'User'}`, {
+        duration: 10000,
+        actionLabel: 'Undo',
+        onAction: async () => {
+          await restoreUser(targetUser)
+          toast.success(`Restored user: ${targetUser.name || targetUser.email || 'User'}`)
+        },
+      })
     } catch (error) {
       setStatus(error?.message || 'Failed to delete user.')
     }
@@ -439,9 +451,19 @@ export default function TeamUsersPage() {
   async function onDeleteTeam(teamId) {
     if (!window.confirm('Delete this team?')) return
 
+    const targetTeam = teams.find((item) => item.id === teamId)
+    if (!targetTeam) return
+
     try {
       await deleteTeam(teamId)
-      setStatus('Team deleted.')
+      toast.notify(`Deleted team: ${targetTeam.name || 'Team'}`, {
+        duration: 10000,
+        actionLabel: 'Undo',
+        onAction: async () => {
+          await restoreTeam(targetTeam)
+          toast.success(`Restored team: ${targetTeam.name || 'Team'}`)
+        },
+      })
     } catch (error) {
       setStatus(error?.message || 'Failed to delete team.')
     }

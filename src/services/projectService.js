@@ -6,6 +6,7 @@ import {
 	getDocs,
 	onSnapshot,
 	query,
+	setDoc,
 	updateDoc,
 	where,
 } from "firebase/firestore";
@@ -303,6 +304,14 @@ export async function deleteProject(id) {
 	await deleteDoc(doc(firestore, PROJECTS, id));
 }
 
+export async function restoreProject(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("Project id is required to restore project.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, PROJECTS, id), data, { merge: false });
+}
+
 export async function addServiceToProject(payload) {
 	assertRequiredFields(payload, [
 		"projectId",
@@ -366,4 +375,12 @@ export async function deleteService(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, SERVICES, id));
+}
+
+export async function restoreService(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("Service id is required to restore service.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, SERVICES, id), data, { merge: false });
 }

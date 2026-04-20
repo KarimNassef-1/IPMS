@@ -83,9 +83,23 @@ export default function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPassword((current) => !current)}
-            className="rounded-md px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? 'Hide password' : 'Show password'}
           >
-            {showPassword ? 'Hide' : 'Show'}
+            {showPassword ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="h-4 w-4" aria-hidden="true">
+                <path d="M3 3l18 18" strokeLinecap="round" />
+                <path d="M10.7 10.7a2 2 0 0 0 2.6 2.6" strokeLinecap="round" />
+                <path d="M9.9 5.1A11.1 11.1 0 0 1 12 4.9c5 0 8.8 3.5 10 7.1a10.9 10.9 0 0 1-4.1 5.4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M6 6.3C3.8 7.7 2.4 9.8 2 12c.5 2.9 3 5.6 6.3 6.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" className="h-4 w-4" aria-hidden="true">
+                <path d="M2 12c1.2-3.6 5-7.1 10-7.1s8.8 3.5 10 7.1c-1.2 3.6-5 7.1-10 7.1S3.2 15.6 2 12Z" strokeLinejoin="round" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
           </button>
         </div>
       </div>

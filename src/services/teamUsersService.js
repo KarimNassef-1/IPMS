@@ -222,6 +222,14 @@ export async function deleteUser(userId) {
 	await deleteDoc(doc(firestore, USERS, userId));
 }
 
+export async function restoreUser(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("User id is required to restore user.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, USERS, id), data, { merge: false });
+}
+
 export async function getTeams() {
 	const firestore = ensureFirebaseReady();
 	const snapshot = await getDocs(collection(firestore, TEAMS));
@@ -275,6 +283,14 @@ export async function upsertTeam(teamId, payload) {
 export async function deleteTeam(teamId) {
 	const firestore = ensureFirebaseReady();
 	await deleteDoc(doc(firestore, TEAMS, teamId));
+}
+
+export async function restoreTeam(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("Team id is required to restore team.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, TEAMS, id), data, { merge: false });
 }
 
 export async function getRolePermissionsMap() {

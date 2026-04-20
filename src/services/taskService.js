@@ -6,6 +6,7 @@ import {
 	getDocs,
 	onSnapshot,
 	query,
+	setDoc,
 	updateDoc,
 	where,
 } from "firebase/firestore";
@@ -58,6 +59,14 @@ export async function deleteTask(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, TASKS, id));
+}
+
+export async function restoreTask(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("Task id is required to restore task.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, TASKS, id), data, { merge: false });
 }
 
 export async function createDailyTask(payload) {
@@ -113,4 +122,12 @@ export async function deleteDailyTask(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, DAILY_TASKS, id));
+}
+
+export async function restoreDailyTask(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("Daily task id is required to restore daily task.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, DAILY_TASKS, id), data, { merge: false });
 }

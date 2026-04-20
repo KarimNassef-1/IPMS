@@ -9,7 +9,7 @@ export const PROJECT_STATUSES = [
 	"Cancelled",
 ];
 
-export const PROJECT_TYPES = ["One-time", "Monthly"];
+export const PROJECT_TYPES = ["One-time", "Monthly", "One-time + Monthly"];
 
 export const SERVICE_CATEGORIES = [
 	"Website Development",

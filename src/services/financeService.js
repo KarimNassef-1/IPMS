@@ -6,6 +6,7 @@ import {
 	getDocs,
 	onSnapshot,
 	query,
+	setDoc,
 	updateDoc,
 	where,
 } from "firebase/firestore";
@@ -122,4 +123,12 @@ export async function deleteExpense(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, EXPENSES, id));
+}
+
+export async function restoreExpense(payload) {
+	const firestore = ensureFirebaseReady();
+	const id = String(payload?.id || "").trim();
+	if (!id) throw new Error("Expense id is required to restore expense.");
+	const { id: _id, ...data } = payload;
+	await setDoc(doc(firestore, EXPENSES, id), data, { merge: false });
 }

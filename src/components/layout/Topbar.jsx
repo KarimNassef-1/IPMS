@@ -31,7 +31,7 @@ export default function Topbar() {
           <button
             type="button"
             onClick={onLogout}
-            className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 sm:px-3 sm:text-xs"
+            className="hidden rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 sm:inline-flex sm:px-3 sm:text-xs"
           >
             Log out
           </button>

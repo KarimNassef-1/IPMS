@@ -7,6 +7,8 @@ import {
   deleteTask,
   getDailyTasks,
   getTasks,
+  restoreDailyTask,
+  restoreTask,
   toggleDailyTask,
   updateDailyTask,
   updateTask,
@@ -203,6 +205,15 @@ export default function TasksPage() {
     setStatusMessage('')
     await deleteTask(taskId)
     await loadTasks()
+    toast.notify(`Deleted task: ${task.name || 'Task'}`, {
+      duration: 10000,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        await restoreTask(task)
+        await loadTasks()
+        toast.success(`Restored task: ${task.name || 'Task'}`)
+      },
+    })
   }
 
   async function toggleTaskLock(task) {
@@ -285,6 +296,15 @@ export default function TasksPage() {
     setStatusMessage('')
     await deleteDailyTask(taskId)
     await loadDailyTasks()
+    toast.notify(`Deleted daily task: ${task.name || 'Task'}`, {
+      duration: 10000,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        await restoreDailyTask(task)
+        await loadDailyTasks()
+        toast.success(`Restored daily task: ${task.name || 'Task'}`)
+      },
+    })
   }
 
   function canDeleteDailyTask(task) {
