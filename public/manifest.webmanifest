@@ -9,16 +9,16 @@
   "theme_color": "#8246f6",
   "icons": [
     {
-      "src": "/logomarknobg.png?v=6",
-      "sizes": "192x192",
-      "type": "image/png",
+      "src": "/logomarknobg.webp?v=7",
+      "sizes": "any",
+      "type": "image/webp",
       "purpose": "any"
     },
     {
-      "src": "/logomarknobg.png?v=6",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "/logomarknobg.webp?v=7",
+      "sizes": "any",
+      "type": "image/webp",
+      "purpose": "any"
     }
   ]
 }
