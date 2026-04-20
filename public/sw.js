@@ -1,10 +1,10 @@
-const CACHE_NAME = "ipms-v4";
+const CACHE_NAME = "ipms-v6";
 const CORE_ASSETS = [
 	"/",
 	"/index.html",
-	"/manifest.webmanifest?v=4",
-	"/favicon.ico?v=4",
-	"/ip-badge.png?v=4",
+	"/manifest.webmanifest?v=6",
+	"/favicon.ico?v=6",
+	"/logomarknobg.png?v=6",
 ];
 
 self.addEventListener("install", (event) => {
