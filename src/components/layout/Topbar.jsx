@@ -32,7 +32,7 @@ function formatClock(rawDate) {
 }
 
 export default function Topbar() {
-  const { user, profile, logout, isAdmin } = useAuth()
+  const { profile, logout, isAdmin } = useAuth()
   const [adminNotifications, setAdminNotifications] = useState([])
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
@@ -52,22 +52,8 @@ export default function Topbar() {
 
     const unsubscribe = subscribeNotifications(
       (items) => {
-        const currentAdminId = String(user?.uid || '').trim()
-        const currentAdminEmail = String(user?.email || '').trim().toLowerCase()
-        const currentAdminName = String(profile?.name || '').trim().toLowerCase()
-
         const nextItems = items
           .filter((item) => item?.adminFeed !== false)
-          .filter((item) => {
-            const actorId = String(item?.actorId || item?.userId || '').trim()
-            const actorEmail = String(item?.actorEmail || '').trim().toLowerCase()
-            const actorName = String(item?.actorName || '').trim().toLowerCase()
-
-            if (actorId && currentAdminId && actorId === currentAdminId) return false
-            if (actorEmail && currentAdminEmail && actorEmail === currentAdminEmail) return false
-            if (actorName && currentAdminName && actorName === currentAdminName) return false
-            return true
-          })
           .sort((left, right) => {
             const leftTime = new Date(left?.date || 0).getTime() || 0
             const rightTime = new Date(right?.date || 0).getTime() || 0
@@ -82,7 +68,7 @@ export default function Topbar() {
     )
 
     return () => unsubscribe()
-  }, [isAdmin, user?.uid, user?.email, profile?.name])
+  }, [isAdmin])
 
   useEffect(() => {
     if (!isNotificationOpen && !isProfileMenuOpen) return undefined
