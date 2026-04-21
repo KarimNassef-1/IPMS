@@ -174,19 +174,22 @@ export default function FinancialsPage() {
     [autoPlannerRecognizedTotal],
   )
 
-  const finalDistribution = useMemo(
-    () => ({
+  const finalDistribution = useMemo(() => {
+    // Base distribution from planner-included services
+    const base = {
       karimSalary: (Number(autoDistribution.karimSalary) || 0) + (Number(manualDistribution.karimSalary) || 0),
-      youssefSalary:
-        (Number(autoDistribution.youssefSalary) || 0) + (Number(manualDistribution.youssefSalary) || 0),
-      agencyOperations:
-        (Number(autoDistribution.agencyOperations) || 0) +
-        (Number(manualDistribution.agencyOperations) || 0),
-      marketingSales:
-        (Number(autoDistribution.marketingSales) || 0) + (Number(manualDistribution.marketingSales) || 0),
-    }),
-    [autoDistribution, manualDistribution],
-  )
+      youssefSalary: (Number(autoDistribution.youssefSalary) || 0) + (Number(manualDistribution.youssefSalary) || 0),
+      agencyOperations: (Number(autoDistribution.agencyOperations) || 0) + (Number(manualDistribution.agencyOperations) || 0),
+      marketingSales: (Number(autoDistribution.marketingSales) || 0) + (Number(manualDistribution.marketingSales) || 0),
+    }
+
+    // Add half of excluded contract value to each salary
+    const excludedTotal = excludedPlannerServices.reduce((sum, service) => sum + (Number(service.recognizedPaidRevenue) || 0), 0)
+    const halfExcluded = excludedTotal / 2
+    base.karimSalary += halfExcluded
+    base.youssefSalary += halfExcluded
+    return base
+  }, [autoDistribution, manualDistribution, excludedPlannerServices])
 
   const serviceAllocationRows = useMemo(() => {
     return plannerServices.map((service) => {

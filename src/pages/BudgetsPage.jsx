@@ -111,7 +111,7 @@ export default function BudgetsPage() {
       marketingSales: 0,
     }
 
-    return plannerPaidServices.reduce((acc, service) => {
+    const acc = plannerPaidServices.reduce((acc, service) => {
       const recognized = calculateRecognizedPaidRevenue(service)
 
       if (service.allocationMode === 'manual') {
@@ -129,7 +129,23 @@ export default function BudgetsPage() {
       acc.marketingSales += Number(autoDist.marketingSales) || 0
       return acc
     }, base)
-  }, [plannerPaidServices])
+
+    // Add half of excluded contract value to each salary
+    const excludedTotal = services
+      .filter(
+        (service) =>
+          service.chargeType !== 'free' &&
+          (Number(service.revenue) || 0) > 0 &&
+          service.includeInFinancialPlanner === false
+      )
+      .reduce((sum, service) => sum + calculateRecognizedPaidRevenue(service), 0)
+
+    const halfExcluded = excludedTotal / 2
+    acc.karimSalary += halfExcluded
+    acc.youssefSalary += halfExcluded
+
+    return acc
+  }, [plannerPaidServices, services])
 
   const spentByBudget = useMemo(() => {
     return expenses.reduce((acc, expense) => {

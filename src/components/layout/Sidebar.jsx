@@ -21,17 +21,26 @@ const navigationItems = [
   { label: 'Team & Users', to: '/team-users', icon: 'teamUsers' },
 ]
 
-function itemClassName(isActive, isSubmenu = false) {
-  const base = isSubmenu
-    ? 'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors'
-    : 'group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors'
+function itemClassName(isActive, isSubmenu = false, isSidebarCollapsed = false) {
+  const base = isSidebarCollapsed
+    ? 'group flex min-h-11 items-center rounded-xl px-3 py-2 text-sm font-medium transition-colors'
+    : isSubmenu
+      ? 'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors'
+      : 'group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors'
+
+  if (isSidebarCollapsed) {
+    return isActive
+      ? `${base} text-white`
+      : `${base} text-[#8246f6] hover:bg-[#f0e9ff]`
+  }
+
   return isActive
-    ? `${base} bg-[#f0e9ff] text-[#8246f6] shadow-sm underline decoration-2 underline-offset-8`
+    ? `${base} bg-[#8246f6] text-white`
     : `${base} text-[#8246f6] hover:bg-[#f0e9ff]`
 }
 
-function labelClassName(isSidebarCollapsed) {
-  return `overflow-hidden whitespace-nowrap transition-all duration-300 ${isSidebarCollapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100'}`
+function labelClassName(isSidebarCollapsed, isActive) {
+  return `overflow-hidden whitespace-nowrap transition-all duration-300 ${isActive ? 'text-white' : 'text-[#8246f6]'} ${isSidebarCollapsed ? 'max-w-0 opacity-0' : 'max-w-[11rem] opacity-100'}`
 }
 
 function isItemActive(item, pathname) {
@@ -52,7 +61,7 @@ function filterNavigationByRole(items, isAdmin) {
 }
 
 function NavIcon({ name, isActive }) {
-  const iconClass = `h-5 w-5 shrink-0 transition-colors duration-200 ${isActive ? 'text-[#6f39e7]' : 'text-[#8246f6]'}`
+  const iconClass = `h-5 w-5 shrink-0 transition-colors duration-200 ${isActive ? 'text-white' : 'text-[#8246f6]'}`
 
   switch (name) {
     case 'dashboard':
@@ -215,7 +224,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
   return (
     <>
       <aside
-        className={`relative hidden shrink-0 rounded-3xl bg-transparent p-4 transition-all duration-300 lg:sticky lg:top-2 lg:block lg:h-[calc(100%-0.5rem)] ${isSidebarCollapsed ? 'w-24' : 'w-64'}`}
+        className={`relative hidden shrink-0 rounded-3xl bg-transparent p-4 transition-all duration-300 lg:sticky lg:top-2 lg:block lg:h-[calc(100vh-1rem)] ${isSidebarCollapsed ? 'w-24' : 'w-64'}`}
       >
         <button
           type="button"
@@ -244,26 +253,26 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
           </p>
         </div>
 
-        <nav className={`ip-sidebar-scroll h-[calc(100%-7.5rem)] space-y-2 overflow-y-auto ${isSidebarCollapsed ? 'pr-0' : 'pr-1'}`}>
+        <nav className={`ip-sidebar-scroll h-[calc(100%-6.75rem)] space-y-2 overflow-y-auto ${isSidebarCollapsed ? 'pr-0' : 'pr-1'}`}>
           {filteredItems.map((item) => (
             <div key={item.to}>
               <NavLink
                 to={item.to}
                 end={item.to === '/'}
-                className={({ isActive }) => itemClassName(isActive || isItemActive(item, pathname))}
+                className={({ isActive }) => itemClassName(isActive || isItemActive(item, pathname), false, isSidebarCollapsed)}
               >
                 {({ isActive }) => {
                   const active = isActive || isItemActive(item, pathname)
                   return (
                     <>
                       <span
-                        className="relative flex h-8 w-8 items-center justify-center"
+                        className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${isSidebarCollapsed && active ? 'bg-[#8246f6]' : ''}`}
                         onMouseEnter={(event) => showTooltip(event, item.label)}
                         onMouseLeave={hideTooltip}
                       >
                         <NavIcon name={item.icon} isActive={active} />
                       </span>
-                      <span className={labelClassName(isSidebarCollapsed)}>{item.label}</span>
+                      <span className={labelClassName(isSidebarCollapsed, active)}>{item.label}</span>
                       {item.children?.length && !isSidebarCollapsed ? (
                         <button
                           type="button"
@@ -273,7 +282,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
                             event.stopPropagation()
                             toggleMenu(item.icon)
                           }}
-                          className="ml-auto flex h-6 w-6 items-center justify-center text-[#8246f6] hover:text-[#6f39e7]"
+                          className={`ml-auto flex h-6 w-6 items-center justify-center ${active ? 'text-white' : 'text-[#8246f6] hover:text-[#6f39e7]'}`}
                         >
                           <svg
                             viewBox="0 0 20 20"
@@ -309,7 +318,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
                             <span className="flex h-7 w-7 items-center justify-center">
                               <NavIcon name={child.icon} isActive={isActive} />
                             </span>
-                            <span>{child.label}</span>
+                            <span className={isActive ? 'text-white' : 'text-[#8246f6]'}>{child.label}</span>
                           </>
                         )}
                       </NavLink>
