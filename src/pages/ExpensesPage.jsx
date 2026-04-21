@@ -8,7 +8,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 
 export default function ExpensesPage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const toast = useToast()
   const [expenses, setExpenses] = useState([])
   const [form, setForm] = useState({
@@ -55,17 +55,32 @@ export default function ExpensesPage() {
 
     await createNotification({
       userId: user?.uid,
+      type: 'expense',
+      action: 'expense_created',
       message: `Expense recorded: ${form.name} (${formatCurrency(form.amount)})`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
       date: new Date().toISOString(),
       status: 'unread',
+      adminFeed: true,
     })
 
     if (parseMoney(form.amount) > 10000) {
       await createNotification({
         userId: user?.uid,
+        type: 'system',
+        action: 'high_expense_warning',
         message: `Budget low warning for ${form.category}: high expense detected`,
+        actorId: user?.uid || '',
+        actorName: profile?.name || 'User',
+        actorEmail: user?.email || '',
+        actorPhotoURL: profile?.photoURL || '',
         date: new Date().toISOString(),
         status: 'unread',
+        adminFeed: true,
+        source: 'system',
       })
     }
 
@@ -85,6 +100,19 @@ export default function ExpensesPage() {
     if (!expense) return
 
     await deleteExpense(expenseId)
+    await createNotification({
+      userId: user?.uid,
+      type: 'expense',
+      action: 'expense_deleted',
+      message: `Expense deleted: ${expense.name || 'Expense'}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     await loadExpenses()
 
     toast.notify(`Deleted expense: ${expense.name || 'Expense'}`, {

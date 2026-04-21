@@ -17,7 +17,7 @@ function todayKey() {
 }
 
 export default function DailyTasksPage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const toast = useToast()
   const [allDailyTasks, setAllDailyTasks] = useState([])
   const [form, setForm] = useState({ name: '', assignedTo: ASSIGNEES[0] })
@@ -58,9 +58,16 @@ export default function DailyTasksPage() {
     })
     await createNotification({
       userId: user?.uid,
+      type: 'daily_task',
+      action: 'daily_task_created',
       message: `Daily task created: ${form.name}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
       date: new Date().toISOString(),
       status: 'unread',
+      adminFeed: true,
     })
     setForm({ name: '', assignedTo: ASSIGNEES[0] })
     await loadDailyTasks()
@@ -68,6 +75,19 @@ export default function DailyTasksPage() {
 
   async function toggleTask(task) {
     await toggleDailyTask(task.id, !task.isCompleted)
+    await createNotification({
+      userId: user?.uid,
+      type: 'daily_task',
+      action: 'daily_task_status_changed',
+      message: `Daily task ${!task.isCompleted ? 'completed' : 'reopened'}: ${task.name}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     await loadDailyTasks()
   }
 
@@ -76,6 +96,19 @@ export default function DailyTasksPage() {
     if (!task) return
 
     await deleteDailyTask(taskId)
+    await createNotification({
+      userId: user?.uid,
+      type: 'daily_task',
+      action: 'daily_task_deleted',
+      message: `Daily task deleted: ${task.name}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     await loadDailyTasks()
 
     toast.notify(`Deleted daily task: ${task.name || 'Task'}`, {
