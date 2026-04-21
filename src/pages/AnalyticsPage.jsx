@@ -111,7 +111,8 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export default function AnalyticsPage() {
-	const { isAdmin, serviceCategories } = useAuth();
+	const { isAdmin, isPartner, serviceCategories } = useAuth();
+	const hasFullFinancialAccess = isAdmin || isPartner;
 	const allowedCategorySet = useMemo(
 		() => createAllowedServiceCategorySet(serviceCategories),
 		[serviceCategories],
@@ -130,7 +131,7 @@ export default function AnalyticsPage() {
 		let latestProjects = [];
 
 		const applyProjectScope = (projectItems, scopedServiceItems) => {
-			if (isAdmin) return projectItems;
+			if (hasFullFinancialAccess) return projectItems;
 			return filterProjectsByVisibleServices(projectItems, scopedServiceItems);
 		};
 
@@ -148,7 +149,7 @@ export default function AnalyticsPage() {
 				]);
 
 				const scopedServices = filterServicesByAccess(se, {
-					isAdmin,
+					isAdmin: hasFullFinancialAccess,
 					allowedCategorySet,
 				});
 				const scopedProjects = applyProjectScope(pr, scopedServices);
@@ -174,7 +175,7 @@ export default function AnalyticsPage() {
 					}, onStreamError),
 					subscribeAllServices((items) => {
 						const scopedServices = filterServicesByAccess(items, {
-							isAdmin,
+							isAdmin: hasFullFinancialAccess,
 							allowedCategorySet,
 						});
 						latestServices = scopedServices;
@@ -197,7 +198,7 @@ export default function AnalyticsPage() {
 				if (typeof unsubscribe === "function") unsubscribe();
 			});
 		};
-	}, [allowedCategorySet, isAdmin]);
+	}, [allowedCategorySet, hasFullFinancialAccess]);
 
 	const analytics = useMemo(() => {
 		const paidServices = services.filter((service) => service.chargeType !== "free");

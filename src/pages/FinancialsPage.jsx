@@ -27,7 +27,8 @@ const DISTRIBUTION_LABELS = {
 }
 
 export default function FinancialsPage() {
-  const { isAdmin, serviceCategories } = useAuth()
+  const { isAdmin, isPartner, serviceCategories } = useAuth()
+  const hasFullFinancialAccess = isAdmin || isPartner
   const allowedCategorySet = useMemo(
     () => createAllowedServiceCategorySet(serviceCategories),
     [serviceCategories],
@@ -41,10 +42,10 @@ export default function FinancialsPage() {
     try {
       const [serviceData, projectData] = await Promise.all([getAllServices(), getProjects()])
       const scopedServices = filterServicesByAccess(serviceData, {
-        isAdmin,
+        isAdmin: hasFullFinancialAccess,
         allowedCategorySet,
       })
-      const scopedProjects = isAdmin
+      const scopedProjects = hasFullFinancialAccess
         ? projectData
         : filterProjectsByVisibleServices(projectData, scopedServices)
 
@@ -57,7 +58,7 @@ export default function FinancialsPage() {
 
   useEffect(() => {
     loadData()
-  }, [isAdmin, allowedCategorySet])
+  }, [hasFullFinancialAccess, allowedCategorySet])
 
   const projectNameById = useMemo(() => {
     return projects.reduce((acc, project) => {

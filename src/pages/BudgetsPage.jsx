@@ -42,7 +42,8 @@ function resolveBudgetKeyForExpense(expense) {
 }
 
 export default function BudgetsPage() {
-  const { isAdmin, serviceCategories } = useAuth()
+  const { isAdmin, isPartner, serviceCategories } = useAuth()
+  const hasFullFinancialAccess = isAdmin || isPartner
   const allowedCategorySet = useMemo(
     () => createAllowedServiceCategorySet(serviceCategories),
     [serviceCategories],
@@ -56,7 +57,7 @@ export default function BudgetsPage() {
     try {
       const [serviceData, expenseData] = await Promise.all([getAllServices(), getExpenses()])
       const scopedServices = filterServicesByAccess(serviceData, {
-        isAdmin,
+        isAdmin: hasFullFinancialAccess,
         allowedCategorySet,
       })
 
@@ -69,7 +70,7 @@ export default function BudgetsPage() {
 
   useEffect(() => {
     loadData()
-  }, [isAdmin, allowedCategorySet])
+  }, [hasFullFinancialAccess, allowedCategorySet])
 
   const paidRevenueTotal = useMemo(() => {
     return services
