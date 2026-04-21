@@ -36,7 +36,6 @@ export default function Topbar() {
   const { profile, logout, isAdmin } = useAuth()
   const [adminNotifications, setAdminNotifications] = useState([])
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
-  const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false)
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [selectedNotificationIds, setSelectedNotificationIds] = useState([])
   const notificationPanelRef = useRef(null)
@@ -78,7 +77,6 @@ export default function Topbar() {
     function handleOutsideClick(event) {
       if (!notificationPanelRef.current?.contains(event.target)) {
         setIsNotificationOpen(false)
-        setIsNotificationMenuOpen(false)
       }
     }
 
@@ -104,13 +102,11 @@ export default function Topbar() {
 
   function startSelectionMode() {
     setIsSelectMode(true)
-    setIsNotificationMenuOpen(false)
     setSelectedNotificationIds([])
   }
 
   function selectAllNotifications() {
     setIsSelectMode(true)
-    setIsNotificationMenuOpen(false)
     setSelectedNotificationIds(adminNotifications.map((item) => item.id))
   }
 
@@ -119,7 +115,6 @@ export default function Topbar() {
     await Promise.all(selectedNotificationIds.map((id) => deleteNotification(id)))
     setSelectedNotificationIds([])
     setIsSelectMode(false)
-    setIsNotificationMenuOpen(false)
   }
 
   return (
@@ -171,48 +166,46 @@ export default function Topbar() {
                       >
                         Mark all read
                       </button>
-
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setIsNotificationMenuOpen((current) => !current)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"
-                          aria-label="Notification options"
-                        >
-                          <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                            <circle cx="12" cy="5.5" r="1.8" />
-                            <circle cx="12" cy="12" r="1.8" />
-                            <circle cx="12" cy="18.5" r="1.8" />
-                          </svg>
-                        </button>
-
-                        {isNotificationMenuOpen ? (
-                          <div className="absolute right-0 z-10 mt-1 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                            <button
-                              type="button"
-                              onClick={startSelectionMode}
-                              className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                            >
-                              Select
-                            </button>
-                            <button
-                              type="button"
-                              onClick={selectAllNotifications}
-                              className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                            >
-                              Select all
-                            </button>
-                            <button
-                              type="button"
-                              onClick={deleteSelectedNotifications}
-                              className="block w-full px-3 py-2 text-left text-xs font-medium text-rose-700 transition hover:bg-rose-50"
-                            >
-                              Delete selected
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={startSelectionMode}
+                        className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Select
+                      </button>
+                      <button
+                        type="button"
+                        onClick={selectAllNotifications}
+                        className="rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Select all
+                      </button>
+                    </div>
+
+                    {selectedNotificationIds.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={deleteSelectedNotifications}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
+                        aria-label="Delete selected notifications"
+                        title="Delete selected"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                          <path d="M4 7h16" />
+                          <path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7" />
+                          <path d="M7.5 7.5l.7 10a2 2 0 0 0 2 1.8h3.6a2 2 0 0 0 2-1.8l.7-10" />
+                          <path d="M10 11v5" />
+                          <path d="M14 11v5" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <div className="h-8 w-8" aria-hidden="true" />
+                    )}
                   </div>
 
                   <div className="max-h-[65vh] overflow-y-auto p-2">
