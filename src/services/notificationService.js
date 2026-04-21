@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  onSnapshot,
   query,
   updateDoc,
   where,
@@ -16,6 +17,7 @@ export async function createNotification(payload) {
   const firestore = ensureFirebaseReady()
   const data = {
     ...payload,
+    adminFeed: payload?.adminFeed !== false,
     status: payload.status || 'unread',
     date: payload.date || new Date().toISOString(),
   }
@@ -37,6 +39,18 @@ export async function getAllNotifications() {
 
   const snapshot = await getDocs(collection(firestore, NOTIFICATIONS))
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+}
+
+export function subscribeNotifications(onData, onError) {
+  const firestore = ensureFirebaseReady()
+
+  return onSnapshot(
+    collection(firestore, NOTIFICATIONS),
+    (snapshot) => {
+      onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
+    },
+    onError,
+  )
 }
 
 export async function markNotificationAsRead(id) {

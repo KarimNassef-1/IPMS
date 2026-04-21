@@ -26,7 +26,7 @@ function todayKey() {
 }
 
 export default function TasksPage() {
-  const { user, role, isAdmin, hasAccess } = useAuth()
+  const { user, role, isAdmin, hasAccess, profile } = useAuth()
   const toast = useToast()
   const [tasks, setTasks] = useState([])
   const [allDailyTasks, setAllDailyTasks] = useState([])
@@ -152,14 +152,19 @@ export default function TasksPage() {
     }
 
     await createTask(form)
-    if (isAdmin) {
-      await createNotification({
-        userId: user?.uid,
-        message: `Task created: ${form.name}`,
-        date: new Date().toISOString(),
-        status: 'unread',
-      })
-    }
+    await createNotification({
+      userId: user?.uid,
+      type: 'task',
+      action: 'task_created',
+      message: `Task created: ${form.name}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     setForm({
       name: '',
       assignedTo: ASSIGNEES[0],
@@ -178,14 +183,19 @@ export default function TasksPage() {
 
     setStatusMessage('')
     await updateTask(task.id, { status })
-    if (status === 'Completed' && isAdmin) {
-      await createNotification({
-        userId: user?.uid,
-        message: `Task completed: ${task.name}`,
-        date: new Date().toISOString(),
-        status: 'unread',
-      })
-    }
+    await createNotification({
+      userId: user?.uid,
+      type: 'task',
+      action: 'task_status_changed',
+      message: `Task status updated: ${task.name} -> ${status}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     await loadTasks()
   }
 
@@ -204,6 +214,19 @@ export default function TasksPage() {
 
     setStatusMessage('')
     await deleteTask(taskId)
+    await createNotification({
+      userId: user?.uid,
+      type: 'task',
+      action: 'task_deleted',
+      message: `Task deleted: ${task.name}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     await loadTasks()
     toast.notify(`Deleted task: ${task.name || 'Task'}`, {
       duration: 10000,
@@ -295,6 +318,19 @@ export default function TasksPage() {
 
     setStatusMessage('')
     await deleteDailyTask(taskId)
+    await createNotification({
+      userId: user?.uid,
+      type: 'daily_task',
+      action: 'daily_task_deleted',
+      message: `Daily task deleted: ${task.name}`,
+      actorId: user?.uid || '',
+      actorName: profile?.name || 'User',
+      actorEmail: user?.email || '',
+      actorPhotoURL: profile?.photoURL || '',
+      date: new Date().toISOString(),
+      status: 'unread',
+      adminFeed: true,
+    })
     await loadDailyTasks()
     toast.notify(`Deleted daily task: ${task.name || 'Task'}`, {
       duration: 10000,

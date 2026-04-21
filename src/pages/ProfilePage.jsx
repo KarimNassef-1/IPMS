@@ -84,12 +84,15 @@ export default function ProfilePage() {
                 className="h-28 w-28 rounded-full object-cover ring-2 ring-[#8246f6]/20"
               />
             ) : (
-              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-[#f0e9ff] text-4xl font-black text-[#6f39e7]">
-                {String(name || user?.email || 'U').slice(0, 1).toUpperCase()}
+              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-slate-100 text-slate-500 ring-2 ring-slate-200">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-10 w-10" aria-hidden="true">
+                  <circle cx="12" cy="8" r="3.2" />
+                  <path d="M5.5 19.2a6.5 6.5 0 0 1 13 0" />
+                </svg>
               </div>
             )}
             <p className="text-lg font-bold text-slate-900">{name || 'Your Name'}</p>
-            <p className="max-w-full truncate text-sm text-slate-500">{user?.email || 'No email'}</p>
+            <p className="max-w-full truncate text-sm text-slate-500">Your profile identity</p>
           </div>
         </section>
 

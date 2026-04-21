@@ -49,16 +49,6 @@ const EMPTY_TEAM_MEMBER_DRAFT = {
   linkedUserId: '',
 }
 
-function initialsFromName(value) {
-  return String(value || 'M')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() || '')
-    .join('') || 'M'
-}
-
 function createTeamMemberId() {
   return `member_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -143,7 +133,15 @@ export default function TeamUsersPage() {
 
   const userNameById = useMemo(
     () => users.reduce((acc, item) => {
-      acc[item.id] = item.name || item.email || 'Unknown user'
+      acc[item.id] = item.name || 'Unknown user'
+      return acc
+    }, {}),
+    [users],
+  )
+
+  const userById = useMemo(
+    () => users.reduce((acc, item) => {
+      acc[item.id] = item
       return acc
     }, {}),
     [users],
@@ -175,7 +173,7 @@ export default function TeamUsersPage() {
           .join(' ')
         return haystack.includes(query)
       })
-      .sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || '')))
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
   }, [teamNameById, userSearchTerm, users])
 
   const filteredTeams = useMemo(() => {
@@ -678,12 +676,18 @@ export default function TeamUsersPage() {
                 <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-start gap-2.5">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f0e9ff] text-[11px] font-bold text-[#6f39e7]">
-                        {initialsFromName(item.name || item.email)}
-                      </div>
+                      {item.photoURL ? (
+                        <img src={item.photoURL} alt={item.name || 'User'} className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 ring-1 ring-slate-200">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                            <circle cx="12" cy="8" r="3.2" />
+                            <path d="M5.5 19.2a6.5 6.5 0 0 1 13 0" />
+                          </svg>
+                        </div>
+                      )}
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-900">{item.name || item.email || 'User'}</p>
-                        <p className="truncate text-xs text-slate-500">{item.email || '-'}</p>
+                        <p className="truncate text-sm font-semibold text-slate-900">{item.name || 'User'}</p>
                         {item.title ? <p className="truncate text-xs text-slate-600">{item.title}</p> : null}
                       </div>
                     </div>
@@ -864,7 +868,7 @@ export default function TeamUsersPage() {
                     setTeamMemberDraft((current) => ({
                       ...current,
                       linkedUserId: selectedId,
-                      name: linkedUser ? (linkedUser.name || linkedUser.email || current.name) : current.name,
+                      name: linkedUser ? (linkedUser.name || current.name) : current.name,
                       pictureUrl: linkedUser ? (linkedUser.photoURL || current.pictureUrl) : current.pictureUrl,
                       technicalRole: linkedUser ? (linkedUser.title || current.technicalRole) : current.technicalRole,
                     }))
@@ -874,7 +878,7 @@ export default function TeamUsersPage() {
                   <option value="">Choose from system users</option>
                   {users.map((item) => (
                     <option key={`team-member-user-${item.id}`} value={item.id}>
-                      {item.name || item.email || item.id}
+                      {item.name || 'User'}
                     </option>
                   ))}
                 </select>
@@ -940,9 +944,18 @@ export default function TeamUsersPage() {
                         alt={member.name || 'Member'}
                         className="h-8 w-8 rounded-full object-cover"
                       />
+                    ) : member.userId && userById[member.userId]?.photoURL ? (
+                      <img
+                        src={userById[member.userId].photoURL}
+                        alt={member.name || 'Member'}
+                        className="h-8 w-8 rounded-full object-cover"
+                      />
                     ) : (
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f0e9ff] text-[10px] font-bold text-[#6f39e7]">
-                        {initialsFromName(member.name)}
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 ring-1 ring-slate-200">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                          <circle cx="12" cy="8" r="3.2" />
+                          <path d="M5.5 19.2a6.5 6.5 0 0 1 13 0" />
+                        </svg>
                       </div>
                     )}
                     <div className="min-w-0">
@@ -1098,9 +1111,18 @@ export default function TeamUsersPage() {
                             alt={member.name || 'Member'}
                             className="h-6 w-6 rounded-full object-cover"
                           />
+                        ) : member.userId && userById[member.userId]?.photoURL ? (
+                          <img
+                            src={userById[member.userId].photoURL}
+                            alt={member.name || 'Member'}
+                            className="h-6 w-6 rounded-full object-cover"
+                          />
                         ) : (
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f0e9ff] text-[9px] font-bold text-[#6f39e7]">
-                            {initialsFromName(member.name)}
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-500 ring-1 ring-slate-200">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3" aria-hidden="true">
+                              <circle cx="12" cy="8" r="3.2" />
+                              <path d="M5.5 19.2a6.5 6.5 0 0 1 13 0" />
+                            </svg>
                           </div>
                         )}
                         <span className="max-w-[110px] truncate text-[11px] font-medium text-slate-700">{member.name}</span>

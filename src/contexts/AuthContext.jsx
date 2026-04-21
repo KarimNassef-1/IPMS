@@ -9,6 +9,7 @@ import { auth, firebaseError, firebaseReady, firestore } from '../services/fireb
 import { AuthContext } from './auth-context'
 import { DEFAULT_ROLE_PERMISSIONS } from '../utils/constants'
 import { subscribeRolePermissions, subscribeTeams } from '../services/teamUsersService'
+import { createNotification } from '../services/notificationService'
 import {
   canAccessServiceCategory,
   createAllowedServiceCategorySet,
@@ -34,6 +35,16 @@ function normalizeRole(roleValue) {
   if (normalized === 'delivery') return 'delivery'
   if (normalized === 'viewer') return 'viewer'
   return null
+}
+
+function isAdminIdentityLogin(email, name) {
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  const normalizedName = String(name || '').trim().toLowerCase()
+
+  return (
+    normalizedEmail === 'thefightholic111@gmail.com' ||
+    normalizedName === 'karim nassef'
+  )
 }
 
 export function AuthProvider({ children }) {
@@ -166,7 +177,44 @@ export function AuthProvider({ children }) {
       throw new Error(firebaseError || 'Firebase is not initialized. Authentication is unavailable.')
     }
 
-    return signInWithEmailAndPassword(auth, normalizedEmail, password)
+    const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
+
+    try {
+      const userDocRef = doc(firestore, 'users', credential?.user?.uid || '')
+      const userSnapshot = credential?.user?.uid ? await getDoc(userDocRef) : null
+      const userData = userSnapshot?.exists() ? userSnapshot.data() : {}
+      const actorName =
+        String(userData?.name || '').trim() ||
+        String(credential?.user?.displayName || '').trim() ||
+        'User'
+      const actorPhotoURL =
+        String(userData?.photoURL || '').trim() ||
+        String(credential?.user?.photoURL || '').trim() ||
+        ''
+      const loggedInAt = new Date().toISOString()
+
+      if (isAdminIdentityLogin(credential?.user?.email || normalizedEmail, actorName)) {
+        return credential
+      }
+
+      await createNotification({
+        type: 'login',
+        action: 'login',
+        message: `${actorName} logged in`,
+        actorId: credential?.user?.uid || '',
+        actorName,
+        actorEmail: credential?.user?.email || normalizedEmail,
+        actorPhotoURL,
+        loggedInAt,
+        date: loggedInAt,
+        status: 'unread',
+        adminFeed: true,
+      })
+    } catch (error) {
+      console.warn('Login notification failed:', error)
+    }
+
+    return credential
   }
 
   async function logout() {
