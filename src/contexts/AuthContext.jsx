@@ -16,6 +16,8 @@ import {
   resolveTeamServiceCategories,
 } from '../utils/serviceAccess'
 
+const INACTIVITY_LOGOUT_MS = 5 * 60 * 1000
+
 function resolveDefaultRole(email) {
   const normalized = String(email || '').trim().toLowerCase()
 
@@ -47,6 +49,25 @@ function isAdminIdentityLogin(email, name) {
   )
 }
 
+function normalizeAccountStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'locked') return 'locked'
+  if (normalized === 'removed') return 'removed'
+  return 'active'
+}
+
+function accountStatusErrorMessage(status) {
+  if (status === 'locked') {
+    return 'You do not have access currently. Your account is locked. Please contact the system admin.'
+  }
+
+  if (status === 'removed') {
+    return 'You are unauthorized to access this system. Please contact the system admin.'
+  }
+
+  return ''
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(null)
@@ -69,6 +90,45 @@ export function AuthProvider({ children }) {
 
     return () => unsubscribePermissions()
   }, [])
+
+  useEffect(() => {
+    if (!user || !auth) return undefined
+
+    let timeoutId
+
+    const scheduleAutoLogout = () => {
+      window.clearTimeout(timeoutId)
+      timeoutId = window.setTimeout(async () => {
+        try {
+          await signOut(auth)
+        } catch (error) {
+          console.warn('Auto logout failed:', error)
+        }
+      }, INACTIVITY_LOGOUT_MS)
+    }
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, scheduleAutoLogout, { passive: true })
+    })
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleAutoLogout()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    scheduleAutoLogout()
+
+    return () => {
+      window.clearTimeout(timeoutId)
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, scheduleAutoLogout)
+      })
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [user])
 
   useEffect(() => {
     if (!firebaseReady || !firestore) return undefined
@@ -113,7 +173,17 @@ export function AuthProvider({ children }) {
 
         if (userSnapshot.exists()) {
           const userData = userSnapshot.data()
+          const accountStatus = normalizeAccountStatus(userData?.accountStatus)
           const normalizedRole = normalizeRole(userSnapshot.data().role)
+
+          if (accountStatus !== 'active') {
+            await signOut(auth)
+            setUser(null)
+            setRole(null)
+            setProfile(null)
+            setLoading(false)
+            return
+          }
 
           setProfile({
             name: userData.name || firebaseUser.displayName || 'User',
@@ -142,6 +212,15 @@ export function AuthProvider({ children }) {
 
         } else {
           const defaultRole = resolveDefaultRole(firebaseUser.email)
+
+          if (defaultRole !== 'admin') {
+            await signOut(auth)
+            setUser(null)
+            setRole(null)
+            setProfile(null)
+            setLoading(false)
+            return
+          }
 
           await setDoc(userDocRef, {
             name: firebaseUser.displayName || 'User',
@@ -181,24 +260,37 @@ export function AuthProvider({ children }) {
 
     const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
 
+    const userDocRef = doc(firestore, 'users', credential?.user?.uid || '')
+    const userSnapshot = credential?.user?.uid ? await getDoc(userDocRef) : null
+
+    if (!userSnapshot?.exists()) {
+      await signOut(auth)
+      throw new Error('You are unauthorized to access this system. Please contact the system admin.')
+    }
+
+    const userData = userSnapshot?.exists() ? userSnapshot.data() : {}
+    const accountStatus = normalizeAccountStatus(userData?.accountStatus)
+
+    if (accountStatus !== 'active') {
+      await signOut(auth)
+      throw new Error(accountStatusErrorMessage(accountStatus))
+    }
+
+    const actorName =
+      String(userData?.name || '').trim() ||
+      String(credential?.user?.displayName || '').trim() ||
+      'User'
+    const actorPhotoURL =
+      String(userData?.photoURL || '').trim() ||
+      String(credential?.user?.photoURL || '').trim() ||
+      ''
+    const actorEmail = String(credential?.user?.email || normalizedEmail).trim().toLowerCase()
+
+    if (isAdminIdentityLogin(actorEmail, actorName)) {
+      return credential
+    }
+
     try {
-      const userDocRef = doc(firestore, 'users', credential?.user?.uid || '')
-      const userSnapshot = credential?.user?.uid ? await getDoc(userDocRef) : null
-      const userData = userSnapshot?.exists() ? userSnapshot.data() : {}
-      const actorName =
-        String(userData?.name || '').trim() ||
-        String(credential?.user?.displayName || '').trim() ||
-        'User'
-      const actorPhotoURL =
-        String(userData?.photoURL || '').trim() ||
-        String(credential?.user?.photoURL || '').trim() ||
-        ''
-      const actorEmail = String(credential?.user?.email || normalizedEmail).trim().toLowerCase()
-
-      if (isAdminIdentityLogin(actorEmail, actorName)) {
-        return credential
-      }
-
       const loggedInAt = new Date().toISOString()
       await createNotification({
         userId: credential?.user?.uid || '',

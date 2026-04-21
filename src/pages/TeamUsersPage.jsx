@@ -3,9 +3,8 @@ import ModuleShell from '../components/layout/ModuleShell'
 import {
   createManagedAuthUser,
   deleteTeam,
-  deleteUser,
   restoreTeam,
-  restoreUser,
+  setUserAccountStatus,
   setRolePermissions,
   subscribeRolePermissions,
   subscribeTeams,
@@ -22,6 +21,7 @@ import {
   WEBSITE_DEVELOPMENT_TRACKS,
 } from '../utils/constants'
 import { useToast } from '../hooks/useToast'
+import { useAuth } from '../hooks/useAuth'
 
 const EMPTY_USER_FORM = {
   name: '',
@@ -64,6 +64,7 @@ function fileToDataUrl(file) {
 
 export default function TeamUsersPage() {
   const toast = useToast()
+  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState([])
   const [teams, setTeams] = useState([])
   const [rolePermissionMap, setRolePermissionMap] = useState(DEFAULT_ROLE_PERMISSIONS)
@@ -278,8 +279,10 @@ export default function TeamUsersPage() {
           photoURL: userForm.photoURL,
           title: userForm.title,
           teamIds: userForm.teamIds,
+          accountStatus: 'active',
         })
       } else {
+        const existingAccountStatus = String(userById[editingUserId]?.accountStatus || 'active').trim().toLowerCase()
         await upsertUser(editingUserId, {
           name: userForm.name,
           email: normalizedEmail,
@@ -287,6 +290,7 @@ export default function TeamUsersPage() {
           photoURL: userForm.photoURL,
           title: userForm.title,
           teamIds: userForm.teamIds,
+          accountStatus: existingAccountStatus,
         })
       }
 
@@ -426,23 +430,40 @@ export default function TeamUsersPage() {
   }
 
   async function onDeleteUser(userId) {
-    if (!window.confirm('Delete this user profile?')) return
+    if (!window.confirm('Remove this user from system access?')) return
 
     const targetUser = users.find((item) => item.id === userId)
     if (!targetUser) return
 
     try {
-      await deleteUser(userId)
-      toast.notify(`Deleted user: ${targetUser.name || targetUser.email || 'User'}`, {
-        duration: 10000,
-        actionLabel: 'Undo',
-        onAction: async () => {
-          await restoreUser(targetUser)
-          toast.success(`Restored user: ${targetUser.name || targetUser.email || 'User'}`)
-        },
-      })
+      await setUserAccountStatus(userId, 'removed')
+      toast.success(`Removed user: ${targetUser.name || targetUser.email || 'User'}`)
     } catch (error) {
       setStatus(error?.message || 'Failed to delete user.')
+    }
+  }
+
+  async function onToggleUserLock(userId) {
+    const targetUser = users.find((item) => item.id === userId)
+    if (!targetUser) return
+
+    const currentStatus = String(targetUser.accountStatus || 'active').trim().toLowerCase()
+    if (currentStatus === 'removed') {
+      setStatus('Removed users cannot be locked or unlocked. Edit and set status back to active first.')
+      return
+    }
+
+    const nextStatus = currentStatus === 'locked' ? 'active' : 'locked'
+
+    try {
+      await setUserAccountStatus(userId, nextStatus)
+      if (nextStatus === 'locked') {
+        toast.success(`Locked user: ${targetUser.name || targetUser.email || 'User'}`)
+      } else {
+        toast.success(`Unlocked user: ${targetUser.name || targetUser.email || 'User'}`)
+      }
+    } catch (error) {
+      setStatus(error?.message || 'Failed to update user lock status.')
     }
   }
 
@@ -691,7 +712,14 @@ export default function TeamUsersPage() {
                         {item.title ? <p className="truncate text-xs text-slate-600">{item.title}</p> : null}
                       </div>
                     </div>
-                    <span className="rounded-full bg-[#f0e9ff] px-2 py-0.5 text-[11px] font-semibold text-[#6f39e7]">{item.role || 'viewer'}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="rounded-full bg-[#f0e9ff] px-2 py-0.5 text-[11px] font-semibold text-[#6f39e7]">{item.role || 'viewer'}</span>
+                      {String(item.accountStatus || 'active').toLowerCase() !== 'active' ? (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${String(item.accountStatus || 'active').toLowerCase() === 'locked' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+                          {String(item.accountStatus || 'active').toLowerCase()}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -728,10 +756,47 @@ export default function TeamUsersPage() {
                     <button
                       type="button"
                       onClick={() => onDeleteUser(item.id)}
-                      className="rounded-lg bg-rose-100 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-200"
+                      className="hidden"
                     >
                       Delete
                     </button>
+
+                    {item.id !== currentUser?.uid ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onToggleUserLock(item.id)}
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${String(item.accountStatus || 'active').toLowerCase() === 'locked' ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+                          title={String(item.accountStatus || 'active').toLowerCase() === 'locked' ? 'Unlock user login' : 'Lock user login'}
+                          aria-label={String(item.accountStatus || 'active').toLowerCase() === 'locked' ? 'Unlock user login' : 'Lock user login'}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                            <rect x="5" y="11" width="14" height="9" rx="2" />
+                            {String(item.accountStatus || 'active').toLowerCase() === 'locked' ? (
+                              <path d="M8 11V8a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+                            ) : (
+                              <path d="M15.5 11V8a3.5 3.5 0 0 0-7 0" strokeLinecap="round" />
+                            )}
+                          </svg>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onDeleteUser(item.id)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100"
+                          title="Remove user access"
+                          aria-label="Remove user access"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                            <path d="M4 7h16" />
+                            <path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7" />
+                            <path d="M7.5 7.5l.7 10a2 2 0 0 0 2 1.8h3.6a2 2 0 0 0 2-1.8l.7-10" />
+                            <path d="M10 11v5" />
+                            <path d="M14 11v5" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ))}

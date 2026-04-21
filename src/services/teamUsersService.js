@@ -146,6 +146,10 @@ export async function createManagedAuthUser(
 				photoURL: String(profilePayload?.photoURL || "").trim(),
 				title: String(profilePayload?.title || "").trim(),
 				teamIds: normalizeArray(profilePayload?.teamIds),
+				accountStatus:
+					String(profilePayload?.accountStatus || "active")
+						.trim()
+						.toLowerCase() || "active",
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString(),
 				source: "managed",
@@ -201,6 +205,10 @@ export async function upsertUser(userId, payload) {
 		...payload,
 		email: normalizeEmail(payload?.email),
 		teamIds: normalizeArray(payload?.teamIds),
+		accountStatus:
+			String(payload?.accountStatus || "active")
+				.trim()
+				.toLowerCase() || "active",
 		updatedAt: new Date().toISOString(),
 	};
 
@@ -220,6 +228,28 @@ export async function upsertUser(userId, payload) {
 export async function deleteUser(userId) {
 	const firestore = ensureFirebaseReady();
 	await deleteDoc(doc(firestore, USERS, userId));
+}
+
+export async function setUserAccountStatus(userId, accountStatus) {
+	const firestore = ensureFirebaseReady();
+	const id = String(userId || "").trim();
+	const status = String(accountStatus || "active")
+		.trim()
+		.toLowerCase();
+
+	if (!id) throw new Error("User id is required.");
+	if (!["active", "locked", "removed"].includes(status)) {
+		throw new Error("Invalid account status.");
+	}
+
+	await setDoc(
+		doc(firestore, USERS, id),
+		{
+			accountStatus: status,
+			updatedAt: new Date().toISOString(),
+		},
+		{ merge: true },
+	);
 }
 
 export async function restoreUser(payload) {
