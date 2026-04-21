@@ -36,7 +36,8 @@ function toDateOrNull(rawValue) {
 }
 
 export default function DashboardPage() {
-  const { isAdmin, serviceCategories } = useAuth()
+  const { isAdmin, isPartner, serviceCategories } = useAuth()
+  const hasFullFinancialAccess = isAdmin || isPartner
   const allowedCategorySet = useMemo(
     () => createAllowedServiceCategorySet(serviceCategories),
     [serviceCategories],
@@ -56,7 +57,7 @@ export default function DashboardPage() {
     let latestProjects = []
 
     const applyProjectScope = (projectItems, scopedServiceItems) => {
-      if (isAdmin) return projectItems
+      if (hasFullFinancialAccess) return projectItems
       return filterProjectsByVisibleServices(projectItems, scopedServiceItems)
     }
 
@@ -74,10 +75,10 @@ export default function DashboardPage() {
         ])
 
         const scopedServices = filterServicesByAccess(sv, {
-          isAdmin,
+          isAdmin: hasFullFinancialAccess,
           allowedCategorySet,
         })
-        const scopedProjects = isAdmin
+        const scopedProjects = hasFullFinancialAccess
           ? pr
           : filterProjectsByVisibleServices(pr, scopedServices)
         latestServices = scopedServices
@@ -111,7 +112,7 @@ export default function DashboardPage() {
           }, handleStreamError),
           subscribeAllServices((items) => {
             const scopedServices = filterServicesByAccess(items, {
-              isAdmin,
+              isAdmin: hasFullFinancialAccess,
               allowedCategorySet,
             })
             latestServices = scopedServices
@@ -139,7 +140,7 @@ export default function DashboardPage() {
         if (typeof unsubscribe === 'function') unsubscribe()
       })
     }
-  }, [allowedCategorySet, isAdmin])
+  }, [allowedCategorySet, hasFullFinancialAccess])
 
   const dashboardData = useMemo(() => {
     const projectNameById = projects.reduce((acc, project) => {

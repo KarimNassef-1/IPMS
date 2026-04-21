@@ -147,7 +147,8 @@ function serviceToForm(service) {
 }
 
 export default function ProjectsPage() {
-  const { user, isAdmin, serviceCategories } = useAuth()
+  const { user, isAdmin, isPartner, serviceCategories } = useAuth()
+  const hasFullFinancialAccess = isAdmin || isPartner
   const toast = useToast()
   const allowedCategorySet = useMemo(
     () => createAllowedServiceCategorySet(serviceCategories),
@@ -216,10 +217,10 @@ export default function ProjectsPage() {
     try {
       const [projectData, serviceData] = await Promise.all([getProjects(), getAllServices()])
       const scopedServices = filterServicesByAccess(serviceData, {
-        isAdmin,
+        isAdmin: hasFullFinancialAccess,
         allowedCategorySet,
       })
-      const scopedProjects = isAdmin
+      const scopedProjects = hasFullFinancialAccess
         ? projectData
         : filterProjectsByVisibleServices(projectData, scopedServices)
 
@@ -232,7 +233,7 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     loadData()
-  }, [isAdmin, allowedCategorySet])
+  }, [hasFullFinancialAccess, allowedCategorySet])
 
   useEffect(() => {
     if (projectError) toast.error(projectError)

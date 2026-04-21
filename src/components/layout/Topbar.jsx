@@ -57,7 +57,7 @@ export default function Topbar() {
     const unsubscribe = subscribeNotifications(
       (items) => {
         const nextItems = items
-          .filter((item) => item?.adminFeed === true)
+          .filter((item) => item?.adminFeed !== false)
           .sort((left, right) => {
             const leftTime = new Date(left?.date || 0).getTime() || 0
             const rightTime = new Date(right?.date || 0).getTime() || 0
