@@ -22,21 +22,17 @@ const navigationItems = [
 ]
 
 function itemClassName(isActive, isSubmenu = false, isSidebarCollapsed = false) {
-  const base = isSidebarCollapsed
-    ? 'group flex min-h-11 items-center rounded-xl px-3 py-2 text-sm font-medium transition-colors'
-    : isSubmenu
-      ? 'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors'
-      : 'group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors'
-
-  if (isSidebarCollapsed) {
-    return isActive
-      ? `${base} text-white`
-      : `${base} text-[#8246f6] hover:bg-[#f0e9ff]`
+  const base = isSubmenu
+    ? 'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors'
+    : 'group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors'
+  // Remove purple bg if sidebar is collapsed and not a submenu
+  if (isActive) {
+    if (isSidebarCollapsed && !isSubmenu) {
+      return `${base} text-white bg-transparent`;
+    }
+    return `${base} bg-[#8246f6] text-white`;
   }
-
-  return isActive
-    ? `${base} bg-[#8246f6] text-white`
-    : `${base} text-[#8246f6] hover:bg-[#f0e9ff]`
+  return `${base} text-[#8246f6] hover:bg-[#f0e9ff]`;
 }
 
 function labelClassName(isSidebarCollapsed, isActive) {
@@ -60,8 +56,8 @@ function filterNavigationByRole(items, isAdmin) {
     }))
 }
 
-function NavIcon({ name, isActive }) {
-  const iconClass = `h-5 w-5 shrink-0 transition-colors duration-200 ${isActive ? 'text-white' : 'text-[#8246f6]'}`
+function NavIcon({ name, isActive, isSidebarCollapsed }) {
+  const iconClass = `h-5 w-5 shrink-0 transition-colors duration-200 ${isActive && !isSidebarCollapsed ? 'text-white' : 'text-[#8246f6]'}`
 
   switch (name) {
     case 'dashboard':
@@ -224,7 +220,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
   return (
     <>
       <aside
-        className={`relative hidden shrink-0 rounded-3xl bg-transparent p-4 transition-all duration-300 lg:sticky lg:top-2 lg:block lg:h-[calc(100vh-1rem)] ${isSidebarCollapsed ? 'w-24' : 'w-64'}`}
+        className={`relative hidden shrink-0 rounded-3xl bg-transparent p-4 transition-all duration-300 lg:sticky lg:top-2 lg:block lg:h-[calc(100%-0.5rem)] ${isSidebarCollapsed ? 'w-24' : 'w-64'}`}
       >
         <button
           type="button"
@@ -253,7 +249,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
           </p>
         </div>
 
-        <nav className={`ip-sidebar-scroll h-[calc(100%-6.75rem)] space-y-2 overflow-y-auto ${isSidebarCollapsed ? 'pr-0' : 'pr-1'}`}>
+        <nav className={`ip-sidebar-scroll h-[calc(100%-7.5rem)] space-y-2 overflow-y-auto ${isSidebarCollapsed ? 'pr-0' : 'pr-1'}`}>
           {filteredItems.map((item) => (
             <div key={item.to}>
               <NavLink
@@ -266,11 +262,18 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
                   return (
                     <>
                       <span
-                        className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${isSidebarCollapsed && active ? 'bg-[#8246f6]' : ''}`}
+                        className="relative flex h-8 w-8 items-center justify-center"
                         onMouseEnter={(event) => showTooltip(event, item.label)}
                         onMouseLeave={hideTooltip}
                       >
-                        <NavIcon name={item.icon} isActive={active} />
+                        <NavIcon name={item.icon} isActive={active} isSidebarCollapsed={isSidebarCollapsed} />
+                        {/* Purple dot for active icon when collapsed */}
+                        {isSidebarCollapsed && active && (
+                          <span
+                            className="absolute left-1/2 -bottom-1.5 h-2 w-2 -translate-x-1/2 rounded-full bg-[#8246f6] shadow-md"
+                            aria-hidden="true"
+                          />
+                        )}
                       </span>
                       <span className={labelClassName(isSidebarCollapsed, active)}>{item.label}</span>
                       {item.children?.length && !isSidebarCollapsed ? (
@@ -311,12 +314,12 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
                         key={child.to}
                         to={child.to}
                         end
-                        className={({ isActive }) => itemClassName(isActive, true)}
+                        className={({ isActive }) => itemClassName(isActive, true, isSidebarCollapsed)}
                       >
                         {({ isActive }) => (
                           <>
                             <span className="flex h-7 w-7 items-center justify-center">
-                              <NavIcon name={child.icon} isActive={isActive} />
+                              <NavIcon name={child.icon} isActive={isActive} isSidebarCollapsed={isSidebarCollapsed} />
                             </span>
                             <span className={isActive ? 'text-white' : 'text-[#8246f6]'}>{child.label}</span>
                           </>
