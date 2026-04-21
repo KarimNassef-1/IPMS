@@ -47,20 +47,6 @@ function isAdminIdentityLogin(email, name) {
   )
 }
 
-function buildLoginNotificationSessionKey(userId, lastSignInTime) {
-  return `ipms-login-notified:${String(userId || '').trim()}:${String(lastSignInTime || '').trim()}`
-}
-
-function hasNotifiedLoginInSession(userId, lastSignInTime) {
-  if (typeof window === 'undefined') return false
-  return window.sessionStorage.getItem(buildLoginNotificationSessionKey(userId, lastSignInTime)) === '1'
-}
-
-function markLoginNotifiedInSession(userId, lastSignInTime) {
-  if (typeof window === 'undefined') return
-  window.sessionStorage.setItem(buildLoginNotificationSessionKey(userId, lastSignInTime), '1')
-}
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(null)
@@ -68,42 +54,6 @@ export function AuthProvider({ children }) {
   const [teams, setTeams] = useState([])
   const [rolePermissions, setRolePermissions] = useState(DEFAULT_ROLE_PERMISSIONS)
   const [loading, setLoading] = useState(firebaseReady)
-
-  const emitLoginNotification = useCallback(async (firebaseUser, userData = {}) => {
-    const actorId = String(firebaseUser?.uid || '').trim()
-    const actorEmail = String(firebaseUser?.email || '').trim().toLowerCase()
-    const actorName =
-      String(userData?.name || '').trim() ||
-      String(firebaseUser?.displayName || '').trim() ||
-      'User'
-    const actorPhotoURL =
-      String(userData?.photoURL || '').trim() ||
-      String(firebaseUser?.photoURL || '').trim() ||
-      ''
-    const lastSignInTime = String(firebaseUser?.metadata?.lastSignInTime || '').trim()
-
-    if (!actorId) return
-    if (isAdminIdentityLogin(actorEmail, actorName)) return
-    if (hasNotifiedLoginInSession(actorId, lastSignInTime)) return
-
-    const loggedInAt = new Date().toISOString()
-    await createNotification({
-      userId: actorId,
-      type: 'login',
-      action: 'login',
-      message: `${actorName} logged in`,
-      actorId,
-      actorName,
-      actorEmail,
-      actorPhotoURL,
-      loggedInAt,
-      date: loggedInAt,
-      status: 'unread',
-      adminFeed: true,
-    })
-
-    markLoginNotifiedInSession(actorId, lastSignInTime)
-  }, [])
 
   useEffect(() => {
     if (!firebaseReady || !firestore) return undefined
@@ -190,11 +140,6 @@ export function AuthProvider({ children }) {
             setRole(defaultRole)
           }
 
-          try {
-            await emitLoginNotification(firebaseUser, userData)
-          } catch (error) {
-            console.warn('Login notification failed:', error)
-          }
         } else {
           const defaultRole = resolveDefaultRole(firebaseUser.email)
 
@@ -215,14 +160,6 @@ export function AuthProvider({ children }) {
 
           setRole(defaultRole)
 
-          try {
-            await emitLoginNotification(firebaseUser, {
-              name: firebaseUser.displayName || 'User',
-              photoURL: firebaseUser.photoURL || '',
-            })
-          } catch (error) {
-            console.warn('Login notification failed:', error)
-          }
         }
       } catch (error) {
         console.error('Failed to resolve auth state:', error)
@@ -233,7 +170,7 @@ export function AuthProvider({ children }) {
     })
 
     return () => unsubscribe()
-  }, [emitLoginNotification])
+  }, [])
 
   async function login(email, password) {
     const normalizedEmail = String(email).trim().toLowerCase()
@@ -242,7 +179,46 @@ export function AuthProvider({ children }) {
       throw new Error(firebaseError || 'Firebase is not initialized. Authentication is unavailable.')
     }
 
-    return signInWithEmailAndPassword(auth, normalizedEmail, password)
+    const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
+
+    try {
+      const userDocRef = doc(firestore, 'users', credential?.user?.uid || '')
+      const userSnapshot = credential?.user?.uid ? await getDoc(userDocRef) : null
+      const userData = userSnapshot?.exists() ? userSnapshot.data() : {}
+      const actorName =
+        String(userData?.name || '').trim() ||
+        String(credential?.user?.displayName || '').trim() ||
+        'User'
+      const actorPhotoURL =
+        String(userData?.photoURL || '').trim() ||
+        String(credential?.user?.photoURL || '').trim() ||
+        ''
+      const actorEmail = String(credential?.user?.email || normalizedEmail).trim().toLowerCase()
+
+      if (isAdminIdentityLogin(actorEmail, actorName)) {
+        return credential
+      }
+
+      const loggedInAt = new Date().toISOString()
+      await createNotification({
+        userId: credential?.user?.uid || '',
+        type: 'login',
+        action: 'login',
+        message: `${actorName} logged in`,
+        actorId: credential?.user?.uid || '',
+        actorName,
+        actorEmail,
+        actorPhotoURL,
+        loggedInAt,
+        date: loggedInAt,
+        status: 'unread',
+        adminFeed: true,
+      })
+    } catch (error) {
+      console.warn('Login notification failed:', error)
+    }
+
+    return credential
   }
 
   async function logout() {

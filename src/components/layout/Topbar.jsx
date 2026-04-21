@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import {
-  deleteNotification,
   markNotificationAsRead,
   subscribeNotifications,
 } from '../../services/notificationService'
@@ -36,10 +35,7 @@ export default function Topbar() {
   const { user, profile, logout, isAdmin } = useAuth()
   const [adminNotifications, setAdminNotifications] = useState([])
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
-  const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false)
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
-  const [isSelectMode, setIsSelectMode] = useState(false)
-  const [selectedNotificationIds, setSelectedNotificationIds] = useState([])
   const notificationPanelRef = useRef(null)
   const profileMenuRef = useRef(null)
 
@@ -94,7 +90,6 @@ export default function Topbar() {
     function handleOutsideClick(event) {
       if (!notificationPanelRef.current?.contains(event.target)) {
         setIsNotificationOpen(false)
-        setIsNotificationMenuOpen(false)
       }
 
       if (!profileMenuRef.current?.contains(event.target)) {
@@ -116,33 +111,6 @@ export default function Topbar() {
     await Promise.all(unread.map((item) => markNotificationAsRead(item.id)))
   }
 
-  function toggleSelectNotification(id) {
-    setSelectedNotificationIds((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-    )
-  }
-
-  function startSelectionMode() {
-    if (!adminNotifications.length) return
-    setIsSelectMode(true)
-    setSelectedNotificationIds([])
-    setIsNotificationMenuOpen(false)
-  }
-
-  function selectAllNotifications() {
-    if (!adminNotifications.length) return
-    setIsSelectMode(true)
-    setSelectedNotificationIds(adminNotifications.map((item) => item.id))
-    setIsNotificationMenuOpen(false)
-  }
-
-  async function deleteSelectedNotifications() {
-    if (!selectedNotificationIds.length) return
-    await Promise.all(selectedNotificationIds.map((id) => deleteNotification(id)))
-    setSelectedNotificationIds([])
-    setIsSelectMode(false)
-  }
-
   return (
     <header className="pointer-events-none sticky top-2 z-20 mb-3 sm:mb-5">
       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
@@ -155,7 +123,6 @@ export default function Topbar() {
                 type="button"
                 onClick={() => {
                   setIsNotificationOpen((current) => !current)
-                  setIsNotificationMenuOpen(false)
                   setIsProfileMenuOpen(false)
                 }}
                 className="relative inline-flex h-9 w-9 items-center justify-center text-slate-700 transition hover:text-violet-700 sm:h-10 sm:w-10"
@@ -177,18 +144,6 @@ export default function Topbar() {
                   <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Admin Notifications</p>
                     <div className="flex items-center gap-2">
-                      {isSelectMode ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsSelectMode(false)
-                            setSelectedNotificationIds([])
-                          }}
-                          className="text-[11px] font-semibold text-slate-600 transition hover:text-slate-800"
-                        >
-                          Cancel select
-                        </button>
-                      ) : null}
                       <button
                         type="button"
                         onClick={markAllAsRead}
@@ -196,74 +151,8 @@ export default function Topbar() {
                       >
                         Mark all read
                       </button>
-
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setIsNotificationMenuOpen((current) => !current)}
-                          disabled={adminNotifications.length === 0}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                          aria-label="Notification options"
-                        >
-                          <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-                            <circle cx="12" cy="5.5" r="1.8" />
-                            <circle cx="12" cy="12" r="1.8" />
-                            <circle cx="12" cy="18.5" r="1.8" />
-                          </svg>
-                        </button>
-
-                        <div
-                          className={`absolute right-0 top-full z-30 mt-2 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg transition-all duration-200 ease-out ${isNotificationMenuOpen ? 'translate-y-0 scale-100 opacity-100' : 'pointer-events-none -translate-y-1 scale-95 opacity-0'}`}
-                        >
-                          <button
-                            type="button"
-                            onClick={startSelectionMode}
-                            disabled={adminNotifications.length === 0}
-                            className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
-                          >
-                            Select
-                          </button>
-                          <button
-                            type="button"
-                            onClick={selectAllNotifications}
-                            disabled={adminNotifications.length === 0}
-                            className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
-                          >
-                            Select all
-                          </button>
-                        </div>
-                      </div>
                     </div>
                   </div>
-
-                  {isSelectMode || selectedNotificationIds.length > 0 ? (
-                    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                      <p className="text-[11px] font-semibold text-slate-600">
-                        {selectedNotificationIds.length > 0
-                          ? `${selectedNotificationIds.length} selected`
-                          : 'Selection mode'}
-                      </p>
-                      {selectedNotificationIds.length > 0 ? (
-                        <button
-                          type="button"
-                          onClick={deleteSelectedNotifications}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
-                          aria-label="Delete selected notifications"
-                          title="Delete selected"
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
-                            <path d="M4 7h16" />
-                            <path d="M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7" />
-                            <path d="M7.5 7.5l.7 10a2 2 0 0 0 2 1.8h3.6a2 2 0 0 0 2-1.8l.7-10" />
-                            <path d="M10 11v5" />
-                            <path d="M14 11v5" />
-                          </svg>
-                        </button>
-                      ) : (
-                        <div className="h-8 w-8" aria-hidden="true" />
-                      )}
-                    </div>
-                  ) : null}
 
                   <div className="max-h-[65vh] overflow-y-auto p-2">
                     {adminNotifications.length === 0 ? (
@@ -273,24 +162,13 @@ export default function Topbar() {
                         const actorName = item?.actorName || 'User'
                         const actorPhoto = item?.actorPhotoURL
                         const loggedInAt = item?.loggedInAt || item?.date
-                        const isSelected = selectedNotificationIds.includes(item.id)
 
                         return (
                           <div
                             key={item.id}
-                            className={`mb-2 rounded-xl border px-2.5 py-2 ${isSelected ? 'border-violet-300 bg-violet-100/60' : item?.status === 'read' ? 'border-slate-100 bg-slate-50/60' : 'border-violet-100 bg-violet-50/70'}`}
+                            className={`mb-2 rounded-xl border px-2.5 py-2 ${item?.status === 'read' ? 'border-slate-100 bg-slate-50/60' : 'border-violet-100 bg-violet-50/70'}`}
                           >
                             <div className="flex items-start gap-2">
-                              {isSelectMode ? (
-                                <label className="mt-1 inline-flex items-center">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => toggleSelectNotification(item.id)}
-                                    className="h-4 w-4 rounded border-slate-300 text-violet-600"
-                                  />
-                                </label>
-                              ) : null}
                               {actorPhoto ? (
                                 <img src={actorPhoto} alt={actorName} className="h-8 w-8 rounded-full object-cover ring-1 ring-slate-200" />
                               ) : (
@@ -340,7 +218,6 @@ export default function Topbar() {
                 onClick={() => {
                   setIsProfileMenuOpen((current) => !current)
                   setIsNotificationOpen(false)
-                  setIsNotificationMenuOpen(false)
                 }}
                 className="inline-flex items-center gap-2 px-1 py-1 text-left transition hover:opacity-90"
                 aria-label="Open profile menu"
