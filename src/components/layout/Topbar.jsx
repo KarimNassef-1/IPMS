@@ -31,6 +31,30 @@ function formatClock(rawDate) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+const NOTIFICATION_HISTORY_CACHE_KEY = 'ipms-admin-notification-history'
+
+function readNotificationHistoryCache() {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATION_HISTORY_CACHE_KEY)
+    const parsed = JSON.parse(raw || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeNotificationHistoryCache(items) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(NOTIFICATION_HISTORY_CACHE_KEY, JSON.stringify(Array.isArray(items) ? items : []))
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
 export default function Topbar() {
   const { profile, logout, isAdmin } = useAuth()
   const [adminNotifications, setAdminNotifications] = useState([])
@@ -38,6 +62,12 @@ export default function Topbar() {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
   const notificationPanelRef = useRef(null)
   const profileMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    const cached = readNotificationHistoryCache()
+    if (cached.length) setAdminNotifications(cached)
+  }, [isAdmin])
 
   async function onLogout() {
     try {
@@ -60,10 +90,19 @@ export default function Topbar() {
             return rightTime - leftTime
           })
 
-        setAdminNotifications(nextItems)
+        if (nextItems.length > 0) {
+          setAdminNotifications(nextItems)
+          writeNotificationHistoryCache(nextItems)
+          return
+        }
+
+        const cached = readNotificationHistoryCache()
+        setAdminNotifications(cached)
       },
       (error) => {
         console.error('Notification stream failed:', error)
+        const cached = readNotificationHistoryCache()
+        setAdminNotifications(cached)
       },
     )
 
@@ -94,6 +133,15 @@ export default function Topbar() {
 
   async function markAllAsRead() {
     const unread = adminNotifications.filter((item) => item?.status !== 'read')
+    if (!unread.length) return
+
+    const unreadIds = new Set(unread.map((item) => item.id))
+    const optimistic = adminNotifications.map((item) =>
+      unreadIds.has(item.id) ? { ...item, status: 'read' } : item,
+    )
+    setAdminNotifications(optimistic)
+    writeNotificationHistoryCache(optimistic)
+
     await Promise.all(unread.map((item) => markNotificationAsRead(item.id)))
   }
 
