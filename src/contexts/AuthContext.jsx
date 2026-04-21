@@ -88,6 +88,7 @@ export function AuthProvider({ children }) {
 
     const loggedInAt = new Date().toISOString()
     await createNotification({
+      userId: actorId,
       type: 'login',
       action: 'login',
       message: `${actorName} logged in`,
