@@ -174,18 +174,33 @@ export default function FinancialsPage() {
     [autoPlannerRecognizedTotal],
   )
 
+  // Split excluded recognized revenue 50/50 between karimSalary and youssefSalary
+  const excludedSplit = useMemo(() => {
+    const total = Number(excludedRecognizedTotal) || 0;
+    return {
+      karimSalary: total / 2,
+      youssefSalary: total / 2,
+    };
+  }, [excludedRecognizedTotal]);
+
   const finalDistribution = useMemo(
     () => ({
-      karimSalary: (Number(autoDistribution.karimSalary) || 0) + (Number(manualDistribution.karimSalary) || 0),
+      karimSalary:
+        (Number(autoDistribution.karimSalary) || 0) +
+        (Number(manualDistribution.karimSalary) || 0) +
+        (Number(excludedSplit.karimSalary) || 0),
       youssefSalary:
-        (Number(autoDistribution.youssefSalary) || 0) + (Number(manualDistribution.youssefSalary) || 0),
+        (Number(autoDistribution.youssefSalary) || 0) +
+        (Number(manualDistribution.youssefSalary) || 0) +
+        (Number(excludedSplit.youssefSalary) || 0),
       agencyOperations:
         (Number(autoDistribution.agencyOperations) || 0) +
         (Number(manualDistribution.agencyOperations) || 0),
       marketingSales:
-        (Number(autoDistribution.marketingSales) || 0) + (Number(manualDistribution.marketingSales) || 0),
+        (Number(autoDistribution.marketingSales) || 0) +
+        (Number(manualDistribution.marketingSales) || 0),
     }),
-    [autoDistribution, manualDistribution],
+    [autoDistribution, manualDistribution, excludedSplit],
   )
 
   const serviceAllocationRows = useMemo(() => {

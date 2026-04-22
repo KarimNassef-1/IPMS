@@ -103,33 +103,47 @@ export default function BudgetsPage() {
     [services],
   )
 
+  // Split excluded paid revenue 50/50 between karimSalary and youssefSalary
+  const excludedSplit = useMemo(() => {
+    const total = Number(excludedPaidRevenue) || 0;
+    return {
+      karimSalary: total / 2,
+      youssefSalary: total / 2,
+    };
+  }, [excludedPaidRevenue]);
+
   const allocation = useMemo(() => {
     const base = {
       karimSalary: 0,
       youssefSalary: 0,
       agencyOperations: 0,
       marketingSales: 0,
-    }
+    };
 
-    return plannerPaidServices.reduce((acc, service) => {
-      const recognized = calculateRecognizedPaidRevenue(service)
+    const result = plannerPaidServices.reduce((acc, service) => {
+      const recognized = calculateRecognizedPaidRevenue(service);
 
       if (service.allocationMode === 'manual') {
-        acc.karimSalary += Number(service?.manualAllocation?.karimSalary) || 0
-        acc.youssefSalary += Number(service?.manualAllocation?.youssefSalary) || 0
-        acc.agencyOperations += Number(service?.manualAllocation?.agencyOperations) || 0
-        acc.marketingSales += Number(service?.manualAllocation?.marketingSales) || 0
-        return acc
+        acc.karimSalary += Number(service?.manualAllocation?.karimSalary) || 0;
+        acc.youssefSalary += Number(service?.manualAllocation?.youssefSalary) || 0;
+        acc.agencyOperations += Number(service?.manualAllocation?.agencyOperations) || 0;
+        acc.marketingSales += Number(service?.manualAllocation?.marketingSales) || 0;
+        return acc;
       }
 
-      const autoDist = calculateDistribution(recognized)
-      acc.karimSalary += Number(autoDist.karimSalary) || 0
-      acc.youssefSalary += Number(autoDist.youssefSalary) || 0
-      acc.agencyOperations += Number(autoDist.agencyOperations) || 0
-      acc.marketingSales += Number(autoDist.marketingSales) || 0
-      return acc
-    }, base)
-  }, [plannerPaidServices])
+      const autoDist = calculateDistribution(recognized);
+      acc.karimSalary += Number(autoDist.karimSalary) || 0;
+      acc.youssefSalary += Number(autoDist.youssefSalary) || 0;
+      acc.agencyOperations += Number(autoDist.agencyOperations) || 0;
+      acc.marketingSales += Number(autoDist.marketingSales) || 0;
+      return acc;
+    }, base);
+
+    // Add excluded split
+    result.karimSalary += Number(excludedSplit.karimSalary) || 0;
+    result.youssefSalary += Number(excludedSplit.youssefSalary) || 0;
+    return result;
+  }, [plannerPaidServices, excludedSplit]);
 
   const spentByBudget = useMemo(() => {
     return expenses.reduce((acc, expense) => {
