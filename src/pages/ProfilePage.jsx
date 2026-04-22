@@ -71,6 +71,51 @@ export default function ProfilePage() {
     }
   }
 
+  // Password reset state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  async function handlePasswordReset(e) {
+    e.preventDefault();
+    setPasswordLoading(true);
+    setStatus('');
+    setStatusType('neutral');
+    if (!currentPassword) {
+      setStatus('Please enter your current password.');
+      setStatusType('error');
+      setPasswordLoading(false);
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      setStatus('Password must be at least 6 characters.');
+      setStatusType('error');
+      setPasswordLoading(false);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setStatus('Passwords do not match.');
+      setStatusType('error');
+      setPasswordLoading(false);
+      return;
+    }
+    try {
+      const { changeUserPasswordWithReauth } = await import('../services/changePasswordWithReauth');
+      await changeUserPasswordWithReauth(currentPassword, newPassword);
+      setStatus('Password updated successfully.');
+      setStatusType('success');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      setStatus(error?.message || 'Failed to update password.');
+      setStatusType('error');
+    } finally {
+      setPasswordLoading(false);
+    }
+  }
+
   return (
     <ModuleShell title="Profile" description="Personalize your identity across the agency workspace.">
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
@@ -154,8 +199,53 @@ export default function ProfilePage() {
                 Reset
               </button>
             </div>
-
           </form>
+
+          {/* Password Reset Section */}
+          <div className="mt-8 border-t pt-6">
+            <h4 className="font-bold text-slate-900 mb-2">Reset Password</h4>
+            <form onSubmit={handlePasswordReset} className="space-y-4 max-w-sm">
+              <label className="block text-sm font-semibold text-slate-700">
+                Current Password
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={e => setCurrentPassword(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                  required
+                />
+              </label>
+              <label className="block text-sm font-semibold text-slate-700">
+                New Password
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                  minLength={6}
+                  required
+                />
+              </label>
+              <label className="block text-sm font-semibold text-slate-700">
+                Confirm Password
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                  minLength={6}
+                  required
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={passwordLoading}
+                className="rounded-xl bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {passwordLoading ? 'Updating...' : 'Change Password'}
+              </button>
+            </form>
+          </div>
         </section>
       </div>
     </ModuleShell>
