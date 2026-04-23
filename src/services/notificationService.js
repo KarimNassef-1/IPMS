@@ -61,9 +61,3 @@ export async function markNotificationAsRead(id) {
 
 	await updateDoc(doc(firestore, NOTIFICATIONS, id), { status: "read" });
 }
-
-export async function deleteNotification(id) {
-	const firestore = ensureFirebaseReady();
-
-	await deleteDoc(doc(firestore, NOTIFICATIONS, id));
-}
