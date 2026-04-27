@@ -3,7 +3,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import {
   markNotificationAsRead,
-  subscribeNotifications,
+  subscribeAdminFeedNotifications,
 } from '../../services/notificationService'
 
 function formatTimeAgo(rawDate) {
@@ -32,6 +32,12 @@ function formatClock(rawDate) {
 }
 
 const NOTIFICATION_HISTORY_CACHE_KEY = 'ipms-admin-notification-history'
+const NOTIFICATION_HISTORY_LIMIT = 200
+
+function clampNotificationHistory(items) {
+  if (!Array.isArray(items)) return []
+  return items.slice(0, NOTIFICATION_HISTORY_LIMIT)
+}
 
 function readNotificationHistoryCache() {
   if (typeof window === 'undefined') return []
@@ -39,7 +45,7 @@ function readNotificationHistoryCache() {
   try {
     const raw = window.localStorage.getItem(NOTIFICATION_HISTORY_CACHE_KEY)
     const parsed = JSON.parse(raw || '[]')
-    return Array.isArray(parsed) ? parsed : []
+    return clampNotificationHistory(Array.isArray(parsed) ? parsed : [])
   } catch {
     return []
   }
@@ -49,7 +55,10 @@ function writeNotificationHistoryCache(items) {
   if (typeof window === 'undefined') return
 
   try {
-    window.localStorage.setItem(NOTIFICATION_HISTORY_CACHE_KEY, JSON.stringify(Array.isArray(items) ? items : []))
+    window.localStorage.setItem(
+      NOTIFICATION_HISTORY_CACHE_KEY,
+      JSON.stringify(clampNotificationHistory(items)),
+    )
   } catch {
     // Ignore storage write failures.
   }
@@ -80,15 +89,15 @@ export default function Topbar() {
   useEffect(() => {
     if (!isAdmin) return undefined
 
-    const unsubscribe = subscribeNotifications(
+    const unsubscribe = subscribeAdminFeedNotifications(
       (items) => {
         const nextItems = items
-          .filter((item) => item?.adminFeed !== false)
           .sort((left, right) => {
             const leftTime = new Date(left?.date || 0).getTime() || 0
             const rightTime = new Date(right?.date || 0).getTime() || 0
             return rightTime - leftTime
           })
+          .slice(0, NOTIFICATION_HISTORY_LIMIT)
 
         if (nextItems.length > 0) {
           setAdminNotifications(nextItems)

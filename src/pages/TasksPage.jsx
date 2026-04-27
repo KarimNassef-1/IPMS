@@ -13,13 +13,11 @@ import {
   updateDailyTask,
   updateTask,
 } from '../services/taskService'
-import { ASSIGNEES, TASK_PRIORITIES, TASK_STATUSES } from '../utils/constants'
+import { TASK_PRIORITIES, TASK_STATUSES } from '../utils/constants'
 import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
 import { getAllUsers } from '../services/teamUsersService'
 import { useToast } from '../hooks/useToast'
-
-const YOUSSEF_NAME = 'youssef'
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10)
@@ -34,12 +32,13 @@ export default function TasksPage() {
   const [statusMessage, setStatusMessage] = useState('')
   const [form, setForm] = useState({
     name: '',
-    assignedTo: ASSIGNEES[0],
+    assignedToUserId: '',
+    assignedTo: '',
     deadline: '',
     priority: TASK_PRIORITIES[1],
     status: TASK_STATUSES[0],
   })
-  const [dailyForm, setDailyForm] = useState({ name: '', assignedTo: ASSIGNEES[0] })
+  const [dailyForm, setDailyForm] = useState({ name: '', assignedToUserId: '', assignedTo: '' })
 
   async function loadTasks() {
     const data = await getTasks()
@@ -76,13 +75,43 @@ export default function TasksPage() {
     toast.info(statusMessage)
   }, [statusMessage, toast])
 
-  const youssefUser = useMemo(() => {
-    return users.find((item) => {
-      const name = String(item?.name || '').trim().toLowerCase()
-      const email = String(item?.email || '').trim().toLowerCase()
-      return name.includes(YOUSSEF_NAME) || email.includes(YOUSSEF_NAME)
-    }) || null
-  }, [users])
+  const assignableUsers = useMemo(() => {
+    const activeUsers = (Array.isArray(users) ? users : []).filter((item) => {
+      const status = String(item?.accountStatus || 'active').toLowerCase()
+      return status === 'active'
+    })
+
+    if (isAdmin) return activeUsers
+    return activeUsers.filter((item) => item.id === user?.uid)
+  }, [isAdmin, user?.uid, users])
+
+  const assigneeNameById = useMemo(() => {
+    return assignableUsers.reduce((acc, item) => {
+      acc[item.id] = item.name || item.displayName || item.email || 'User'
+      return acc
+    }, {})
+  }, [assignableUsers])
+
+  function getTaskAssigneeIds(task) {
+    if (Array.isArray(task?.assignedUserIds) && task.assignedUserIds.length) {
+      return task.assignedUserIds.map((id) => String(id || '').trim()).filter(Boolean)
+    }
+    const single = String(task?.assignedToUserId || '').trim()
+    return single ? [single] : []
+  }
+
+  function getPrimaryAssigneeId(task) {
+    return getTaskAssigneeIds(task)[0] || ''
+  }
+
+  function getPrimaryAssigneeLabel(task) {
+    const assigneeId = getPrimaryAssigneeId(task)
+    if (assigneeId && assigneeNameById[assigneeId]) return assigneeNameById[assigneeId]
+    if (Array.isArray(task?.assignedUserNames) && task.assignedUserNames.length) {
+      return task.assignedUserNames[0]
+    }
+    return task?.assignedTo || 'Unassigned'
+  }
 
   const completionRate = useMemo(() => {
     if (!tasks.length) return 0
@@ -121,24 +150,25 @@ export default function TasksPage() {
     [tasks],
   )
 
-  function isAssignedToYoussef(taskLike) {
-    return String(taskLike?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME
-  }
-
   function canManageTask(task) {
     if (isAdmin) return true
     if (role !== 'partner') return false
-    return isAssignedToYoussef(task)
+    return getTaskAssigneeIds(task).includes(String(user?.uid || '').trim())
   }
 
   function canManageDailyTask(task) {
     if (isAdmin) return true
     if (role !== 'partner') return false
-    return isAssignedToYoussef(task)
+    return getTaskAssigneeIds(task).includes(String(user?.uid || '').trim())
   }
 
   function handleChange(event) {
     const { name, value } = event.target
+    if (name === 'assignedToUserId') {
+      const selectedName = assigneeNameById[value] || ''
+      setForm((current) => ({ ...current, assignedToUserId: value, assignedTo: selectedName }))
+      return
+    }
     setForm((current) => ({ ...current, [name]: value }))
   }
 
@@ -146,12 +176,24 @@ export default function TasksPage() {
     event.preventDefault()
     setStatusMessage('')
 
-    if (role === 'partner' && String(form.assignedTo || '').trim().toLowerCase() !== YOUSSEF_NAME) {
-      setStatusMessage('Partner can create tasks assigned to Youssef only.')
+    const assigneeId = String(form.assignedToUserId || '').trim()
+    if (!assigneeId) {
+      setStatusMessage('Please choose a task assignee.')
       return
     }
 
-    await createTask(form)
+    if (role === 'partner' && assigneeId !== String(user?.uid || '').trim()) {
+      setStatusMessage('Partner can create tasks assigned to self only.')
+      return
+    }
+
+    await createTask({
+      ...form,
+      assignedToUserId: assigneeId,
+      assignedTo: assigneeNameById[assigneeId] || form.assignedTo || 'User',
+      assignedUserIds: [assigneeId],
+      assignedUserNames: [assigneeNameById[assigneeId] || form.assignedTo || 'User'],
+    })
     await createNotification({
       userId: user?.uid,
       type: 'task',
@@ -167,7 +209,8 @@ export default function TasksPage() {
     })
     setForm({
       name: '',
-      assignedTo: ASSIGNEES[0],
+      assignedToUserId: assigneeId,
+      assignedTo: assigneeNameById[assigneeId] || '',
       deadline: '',
       priority: TASK_PRIORITIES[1],
       status: TASK_STATUSES[0],
@@ -250,35 +293,46 @@ export default function TasksPage() {
     await loadTasks()
   }
 
-  async function notifyYoussef(task) {
+  async function notifyTaskAssignee(task) {
     if (!isAdmin) return
-    if (!youssefUser?.id) {
-      setStatusMessage('Could not find Youssef user profile to notify.')
+    const assigneeId = getPrimaryAssigneeId(task)
+    if (!assigneeId) {
+      setStatusMessage('Could not find task assignee profile to notify.')
       return
     }
 
     setStatusMessage('')
     await createNotification({
-      userId: youssefUser.id,
+      userId: assigneeId,
       message: `Task update from system: ${task.name} (${task.status || 'Pending'})`,
       date: new Date().toISOString(),
       status: 'unread',
       source: 'system',
     })
-    setStatusMessage('Notification sent to Youssef.')
+    setStatusMessage('Notification sent to assignee.')
   }
 
   async function submitDailyTask(event) {
     event.preventDefault()
     if (!canViewDailyTasks) return
 
-    if (role === 'partner' && !isAssignedToYoussef(dailyForm)) {
-      setStatusMessage('Partner can create daily tasks assigned to Youssef only.')
+    const assigneeId = String(dailyForm.assignedToUserId || '').trim()
+    if (!assigneeId) {
+      setStatusMessage('Please choose a daily task assignee.')
+      return
+    }
+
+    if (role === 'partner' && assigneeId !== String(user?.uid || '').trim()) {
+      setStatusMessage('Partner can create daily tasks assigned to self only.')
       return
     }
 
     await createDailyTask({
       ...dailyForm,
+      assignedToUserId: assigneeId,
+      assignedTo: assigneeNameById[assigneeId] || dailyForm.assignedTo || 'User',
+      assignedUserIds: [assigneeId],
+      assignedUserNames: [assigneeNameById[assigneeId] || dailyForm.assignedTo || 'User'],
       date: today,
       isCompleted: false,
       locked: false,
@@ -289,7 +343,11 @@ export default function TasksPage() {
       date: new Date().toISOString(),
       status: 'unread',
     })
-    setDailyForm({ name: '', assignedTo: ASSIGNEES[0] })
+    setDailyForm({
+      name: '',
+      assignedToUserId: assigneeId,
+      assignedTo: assigneeNameById[assigneeId] || '',
+    })
     await loadDailyTasks()
   }
 
@@ -358,28 +416,51 @@ export default function TasksPage() {
     await loadDailyTasks()
   }
 
-  async function notifyYoussefDailyTask(task) {
+  async function notifyDailyTaskAssignee(task) {
     if (!isAdmin) return
-    if (!youssefUser?.id) {
-      setStatusMessage('Could not find Youssef user profile to notify.')
+    const assigneeId = getPrimaryAssigneeId(task)
+    if (!assigneeId) {
+      setStatusMessage('Could not find daily task assignee profile to notify.')
       return
     }
 
     const stateLabel = task?.isCompleted ? 'Completed' : 'Pending'
     setStatusMessage('')
     await createNotification({
-      userId: youssefUser.id,
+      userId: assigneeId,
       message: `Daily task update from system: ${task.name} (${stateLabel})`,
       date: new Date().toISOString(),
       status: 'unread',
       source: 'system',
     })
-    setStatusMessage('Notification sent to Youssef.')
+    setStatusMessage('Notification sent to assignee.')
   }
 
-  function dailyTasksFor(assignee) {
-    return todaysDailyTasks.filter((item) => item.assignedTo === assignee)
+  function dailyTasksFor(assigneeId) {
+    return todaysDailyTasks.filter((item) => getPrimaryAssigneeId(item) === assigneeId)
   }
+
+  const dailyTaskSections = useMemo(() => {
+    return assignableUsers.map((item) => ({
+      id: item.id,
+      label: item.name || item.displayName || item.email || 'User',
+    }))
+  }, [assignableUsers])
+
+  useEffect(() => {
+    if (!assignableUsers.length) return
+    const fallbackId = assignableUsers[0].id
+    const fallbackName = assigneeNameById[fallbackId] || 'User'
+
+    setForm((current) => {
+      if (current.assignedToUserId) return current
+      return { ...current, assignedToUserId: fallbackId, assignedTo: fallbackName }
+    })
+    setDailyForm((current) => {
+      if (current.assignedToUserId) return current
+      return { ...current, assignedToUserId: fallbackId, assignedTo: fallbackName }
+    })
+  }, [assignableUsers, assigneeNameById])
 
   return (
     <ModuleShell
@@ -410,11 +491,10 @@ export default function TasksPage() {
           <h4 className="font-bold text-slate-900">Create Task</h4>
           <input name="name" value={form.name} onChange={handleChange} placeholder="Task name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           <div className="grid gap-3 sm:grid-cols-2">
-            <select name="assignedTo" value={form.assignedTo} onChange={handleChange} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              {(role === 'partner'
-                ? ASSIGNEES.filter((assignee) => String(assignee).trim().toLowerCase() === YOUSSEF_NAME)
-                : ASSIGNEES
-              ).map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
+            <select name="assignedToUserId" value={form.assignedToUserId} onChange={handleChange} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              {assignableUsers.map((assignee) => (
+                <option key={assignee.id} value={assignee.id}>{assigneeNameById[assignee.id] || 'User'}</option>
+              ))}
             </select>
             <input name="deadline" type="date" value={form.deadline} onChange={handleChange} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           </div>
@@ -454,7 +534,7 @@ export default function TasksPage() {
               <div className="min-w-0">
                 <h5 className="font-semibold text-slate-900 break-words">{task.name}</h5>
                 <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{task.assignedTo}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{getPrimaryAssigneeLabel(task)}</span>
                   <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">{task.priority}</span>
                   <span className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">Due {task.deadline}</span>
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">{task.locked ? 'Locked' : 'Unlocked'}</span>
@@ -492,9 +572,9 @@ export default function TasksPage() {
                 {isAdmin ? (
                   <button
                     type="button"
-                    onClick={() => notifyYoussef(task)}
+                    onClick={() => notifyTaskAssignee(task)}
                     className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700"
-                    title="Send system notification to Youssef"
+                    title="Send system notification to assignee"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
                       <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
@@ -530,14 +610,20 @@ export default function TasksPage() {
                 required
               />
               <select
-                value={dailyForm.assignedTo}
-                onChange={(event) => setDailyForm((current) => ({ ...current, assignedTo: event.target.value }))}
+                value={dailyForm.assignedToUserId}
+                onChange={(event) => {
+                  const id = event.target.value
+                  setDailyForm((current) => ({
+                    ...current,
+                    assignedToUserId: id,
+                    assignedTo: assigneeNameById[id] || '',
+                  }))
+                }}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               >
-                {(role === 'partner'
-                  ? ASSIGNEES.filter((assignee) => String(assignee).trim().toLowerCase() === YOUSSEF_NAME)
-                  : ASSIGNEES
-                ).map((assignee) => <option key={assignee} value={assignee}>{assignee}</option>)}
+                {assignableUsers.map((assignee) => (
+                  <option key={assignee.id} value={assignee.id}>{assigneeNameById[assignee.id] || 'User'}</option>
+                ))}
               </select>
               <button className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7]">Create Daily Task</button>
               <p className="text-xs text-slate-500">Tasks are reset by using a new date key each day. Historical completion remains stored.</p>
@@ -559,11 +645,11 @@ export default function TasksPage() {
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {ASSIGNEES.map((assignee) => (
-              <section key={assignee} className="rounded-2xl border border-white/30 bg-white/80 p-4">
-                <h4 className="font-bold text-slate-900">{assignee} Daily Tasks</h4>
+            {dailyTaskSections.map((assignee) => (
+              <section key={assignee.id} className="rounded-2xl border border-white/30 bg-white/80 p-4">
+                <h4 className="font-bold text-slate-900">{assignee.label} Daily Tasks</h4>
                 <div className="mt-3 space-y-2">
-                  {dailyTasksFor(assignee).map((task) => (
+                  {dailyTasksFor(assignee.id).map((task) => (
                     <div key={task.id} className="rounded-lg border border-slate-200 bg-white p-2 text-sm">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
@@ -576,13 +662,11 @@ export default function TasksPage() {
                           />
                           <span className={task.isCompleted ? 'line-through text-slate-400' : 'text-slate-800'}>{task.name}</span>
                         </label>
-                        {String(task?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME ? (
-                          <p className="mt-1 text-[11px] font-semibold text-slate-500">{task.locked ? 'Locked' : 'Unlocked'}</p>
-                        ) : null}
+                        <p className="mt-1 text-[11px] font-semibold text-slate-500">{task.locked ? 'Locked' : 'Unlocked'}</p>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                        {isAdmin && String(task?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME ? (
+                        {isAdmin ? (
                           <button
                             type="button"
                             onClick={() => toggleDailyTaskLock(task)}
@@ -603,12 +687,12 @@ export default function TasksPage() {
                           </button>
                         ) : null}
 
-                        {isAdmin && String(task?.assignedTo || '').trim().toLowerCase() === YOUSSEF_NAME ? (
+                        {isAdmin ? (
                           <button
                             type="button"
-                            onClick={() => notifyYoussefDailyTask(task)}
+                            onClick={() => notifyDailyTaskAssignee(task)}
                             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700"
-                            title="Send system notification to Youssef"
+                            title="Send system notification to assignee"
                           >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
                               <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
@@ -629,7 +713,7 @@ export default function TasksPage() {
                       </div>
                     </div>
                   ))}
-                  {dailyTasksFor(assignee).length === 0 ? <p className="text-sm text-slate-600">No tasks for today.</p> : null}
+                  {dailyTasksFor(assignee.id).length === 0 ? <p className="text-sm text-slate-600">No tasks for today.</p> : null}
                 </div>
               </section>
             ))}

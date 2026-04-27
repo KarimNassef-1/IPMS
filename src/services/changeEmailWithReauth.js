@@ -1,28 +1,33 @@
-import { auth } from "./firebase";
+import { auth, firestore } from "./firebase";
 import {
 	EmailAuthProvider,
 	reauthenticateWithCredential,
-	updatePassword,
+	updateEmail,
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { firestore } from "./firebase";
 
-export async function changeUserPasswordWithReauth(
-	currentPassword,
-	newPassword,
-) {
+export async function changeUserEmailWithReauth(currentPassword, newEmail) {
 	if (!auth?.currentUser) {
 		throw new Error("No authenticated user.");
 	}
+
 	const user = auth.currentUser;
+	const nextEmail = String(newEmail || "")
+		.trim()
+		.toLowerCase();
+	if (!nextEmail) {
+		throw new Error("New email is required.");
+	}
+
 	const credential = EmailAuthProvider.credential(user.email, currentPassword);
 	await reauthenticateWithCredential(user, credential);
-	await updatePassword(user, newPassword);
+	await updateEmail(user, nextEmail);
 
 	if (firestore && user.uid) {
 		await setDoc(
 			doc(firestore, "users", user.uid),
 			{
+				email: nextEmail,
 				passwordResetRequired: false,
 				updatedAt: new Date().toISOString(),
 			},

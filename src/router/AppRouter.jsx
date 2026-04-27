@@ -2,8 +2,9 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import AppLayout from '../components/layout/AppLayout'
 import { PermissionRoute, ProtectedRoute } from '../components/guards/ProtectedRoute'
 import LoginPage from '../pages/LoginPage'
-import DashboardPage from '../pages/DashboardPage'
+import HomePage from '../pages/HomePage'
 import ProjectsPage from '../pages/ProjectsPage'
+import OutsourcePortalPage from '../pages/OutsourcePortalPage'
 import TasksPage from '../pages/TasksPage'
 import FinancialsPage from '../pages/FinancialsPage'
 import ExpensesPage from '../pages/ExpensesPage'
@@ -23,10 +24,13 @@ export default function AppRouter() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route element={<PermissionRoute permission="dashboard" />}>
-            <Route index element={<DashboardPage />} />
+            <Route index element={<HomePage />} />
           </Route>
           <Route element={<PermissionRoute permission="projects" />}>
             <Route path="projects" element={<ProjectsPage />} />
+          </Route>
+          <Route element={<PermissionRoute permission="outsourcePortal" />}>
+            <Route path="outsource" element={<OutsourcePortalPage />} />
           </Route>
           <Route element={<PermissionRoute permission="tasks" />}>
             <Route path="tasks" element={<TasksPage />} />

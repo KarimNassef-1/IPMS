@@ -59,3 +59,74 @@ export function assertRequiredFields(payload, fields) {
 		}
 	}
 }
+
+export function normalizePhoneNumber(value) {
+	return String(value || "").replace(/\D+/g, "");
+}
+
+export function buildManagedLoginEmailFromPhone(phoneNumber) {
+	const digits = normalizePhoneNumber(phoneNumber);
+	if (!digits) return "";
+	return `u${digits}@ipms.local`;
+}
+
+function createSecureRandomString(length, alphabet) {
+	const normalizedLength = Math.max(Number(length) || 0, 0);
+	if (!normalizedLength) return "";
+
+	const chars = String(alphabet || "");
+	if (!chars.length) {
+		throw new Error("Alphabet is required to generate random values.");
+	}
+
+	if (
+		typeof globalThis !== "undefined" &&
+		globalThis.crypto &&
+		typeof globalThis.crypto.getRandomValues === "function"
+	) {
+		const bytes = new Uint32Array(normalizedLength);
+		globalThis.crypto.getRandomValues(bytes);
+		return Array.from(bytes)
+			.map((value) => chars[value % chars.length])
+			.join("");
+	}
+
+	let result = "";
+	for (let index = 0; index < normalizedLength; index += 1) {
+		const randomIndex = Math.floor(Math.random() * chars.length);
+		result += chars[randomIndex];
+	}
+	return result;
+}
+
+export function generateManagedTemporaryPassword({
+	fullName,
+	phoneNumber,
+	services,
+}) {
+	// Keep API signature stable for existing call sites, but generate a non-deterministic password.
+	void fullName;
+	void phoneNumber;
+	void services;
+
+	const uppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+	const lowercase = "abcdefghijkmnopqrstuvwxyz";
+	const digits = "23456789";
+	const symbols = "!@#$%^&*";
+	const combined = `${uppercase}${lowercase}${digits}${symbols}`;
+
+	const required = [
+		createSecureRandomString(1, uppercase),
+		createSecureRandomString(1, lowercase),
+		createSecureRandomString(1, digits),
+		createSecureRandomString(1, symbols),
+	].join("");
+
+	const filler = createSecureRandomString(12, combined);
+	const shuffled = `${required}${filler}`
+		.split("")
+		.sort(() => (Math.random() < 0.5 ? -1 : 1))
+		.join("");
+
+	return shuffled;
+}

@@ -5,6 +5,8 @@ import {
   createProject,
   deleteProject,
   deleteService,
+  getProjectsByServiceCategories,
+  getServicesByCategories,
   restoreProject,
   restoreService,
   getAllServices,
@@ -12,6 +14,11 @@ import {
   updateService,
   updateProject,
 } from '../services/projectService'
+import { getAllUsers } from '../services/teamUsersService'
+import {
+  deleteOutsourcePortalsByService,
+  upsertOutsourcePortalByService,
+} from '../services/outsourcePortalService'
 import { PROJECT_STATUSES, PROJECT_TYPES, SERVICE_CATEGORIES } from '../utils/constants'
 import { formatCurrency } from '../utils/helpers'
 import { createNotification } from '../services/notificationService'
@@ -41,6 +48,10 @@ function normalizeProjectType(value) {
   return value === 'Mix' ? 'One-time + Monthly' : value
 }
 
+function getOutsourceUserLabel(user) {
+  return user?.displayName || user?.email || 'Outsource user'
+}
+
 function createInitialServiceForm() {
   return {
     projectId: '',
@@ -56,6 +67,10 @@ function createInitialServiceForm() {
       marketingSales: '',
     },
     deliveryType: 'inhouse',
+    assignedUserId: '',
+    assignedUserName: '',
+    assignedUserIds: [],
+    assignedUserNames: [],
     outsourcePercentage: '',
     recurringOutsourcePercentage: '',
     outsourceServiceFee: '',
@@ -91,6 +106,16 @@ function serviceToForm(service) {
 
   const chargedRevenue = Number(service.revenue) || 0
   const fallbackValue = Number(service.valueAmount) || Number(service.totalContractValue) || chargedRevenue
+  const assignedUserIds = Array.isArray(service.assignedUserIds)
+    ? service.assignedUserIds.filter(Boolean)
+    : service.assignedUserId
+      ? [service.assignedUserId]
+      : []
+  const assignedUserNames = Array.isArray(service.assignedUserNames)
+    ? service.assignedUserNames.filter(Boolean)
+    : service.assignedUserName
+      ? [service.assignedUserName]
+      : []
 
   return {
     projectId: service.projectId || '',
@@ -114,6 +139,10 @@ function serviceToForm(service) {
         : '',
     },
     deliveryType: service.deliveryType === 'outsource' ? 'outsource' : 'inhouse',
+    assignedUserId: assignedUserIds[0] || service.assignedUserId || '',
+    assignedUserName: assignedUserNames[0] || service.assignedUserName || '',
+    assignedUserIds,
+    assignedUserNames,
     outsourcePercentage: Number(service.outsourcePercentage)
       ? String(Number(service.outsourcePercentage))
       : '',
@@ -156,6 +185,7 @@ export default function ProjectsPage() {
   )
   const [projects, setProjects] = useState([])
   const [services, setServices] = useState([])
+  const [outsourceUsers, setOutsourceUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [submittingProject, setSubmittingProject] = useState(false)
   const [submittingService, setSubmittingService] = useState(false)
@@ -172,6 +202,8 @@ export default function ProjectsPage() {
   const [editingProjectId, setEditingProjectId] = useState(null)
   const [editingServiceId, setEditingServiceId] = useState(null)
   const [showComposer, setShowComposer] = useState(false)
+  const [projectAssigneeSearch, setProjectAssigneeSearch] = useState('')
+  const [serviceAssigneeSearch, setServiceAssigneeSearch] = useState('')
   const [projectForm, setProjectForm] = useState({
     clientName: '',
     projectName: '',
@@ -181,6 +213,8 @@ export default function ProjectsPage() {
     deadline: '',
     status: PROJECT_STATUSES[0],
     notes: '',
+    assignedUserIds: [],
+    assignedUserNames: [],
     recurringPaused: false,
     recurringCancelled: false,
   })
@@ -215,11 +249,20 @@ export default function ProjectsPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [projectData, serviceData] = await Promise.all([getProjects(), getAllServices()])
-      const scopedServices = filterServicesByAccess(serviceData, {
-        isAdmin: hasFullFinancialAccess,
-        allowedCategorySet,
-      })
+      const categories = Array.from(allowedCategorySet)
+      const [projectData, serviceData] = hasFullFinancialAccess
+        ? await Promise.all([getProjects(), getAllServices()])
+        : await Promise.all([
+            getProjectsByServiceCategories(categories),
+            getServicesByCategories(categories),
+          ])
+
+      const scopedServices = hasFullFinancialAccess
+        ? filterServicesByAccess(serviceData, {
+            isAdmin: hasFullFinancialAccess,
+            allowedCategorySet,
+          })
+        : serviceData
       const scopedProjects = hasFullFinancialAccess
         ? projectData
         : filterProjectsByVisibleServices(projectData, scopedServices)
@@ -234,6 +277,32 @@ export default function ProjectsPage() {
   useEffect(() => {
     loadData()
   }, [hasFullFinancialAccess, allowedCategorySet])
+
+  useEffect(() => {
+    if (!isAdmin) return
+
+    let active = true
+    async function loadOutsourceUsers() {
+      try {
+        const users = await getAllUsers()
+        if (!active) return
+        const eligible = (Array.isArray(users) ? users : []).filter((item) => {
+          const role = String(item?.role || '').toLowerCase()
+          const status = String(item?.accountStatus || 'active').toLowerCase()
+          return role === 'outsource' && status === 'active'
+        })
+        setOutsourceUsers(eligible)
+      } catch {
+        if (!active) return
+        setOutsourceUsers([])
+      }
+    }
+
+    loadOutsourceUsers()
+    return () => {
+      active = false
+    }
+  }, [isAdmin])
 
   useEffect(() => {
     if (projectError) toast.error(projectError)
@@ -315,6 +384,22 @@ export default function ProjectsPage() {
       ),
     ).sort((left, right) => left.localeCompare(right))
   }, [services])
+
+  const filteredProjectAssignees = useMemo(() => {
+    const query = projectAssigneeSearch.trim().toLowerCase()
+    if (!query) return outsourceUsers
+    return outsourceUsers.filter((item) =>
+      getOutsourceUserLabel(item).toLowerCase().includes(query),
+    )
+  }, [outsourceUsers, projectAssigneeSearch])
+
+  const filteredServiceAssignees = useMemo(() => {
+    const query = serviceAssigneeSearch.trim().toLowerCase()
+    if (!query) return outsourceUsers
+    return outsourceUsers.filter((item) =>
+      getOutsourceUserLabel(item).toLowerCase().includes(query),
+    )
+  }, [outsourceUsers, serviceAssigneeSearch])
 
   const visibleProjects = useMemo(() => {
     const query = projectSearch.trim().toLowerCase()
@@ -445,9 +530,101 @@ export default function ProjectsPage() {
     setProjectForm((current) => ({ ...current, [name]: type === 'checkbox' ? checked : value }))
   }
 
+  function applyProjectAssignees(ids) {
+    const selectedIds = Array.from(new Set((Array.isArray(ids) ? ids : []).filter(Boolean)))
+    const selectedNames = selectedIds.map((id) => {
+      const selectedUser = outsourceUsers.find((item) => item.id === id)
+      return getOutsourceUserLabel(selectedUser)
+    })
+
+    setProjectForm((current) => ({
+      ...current,
+      assignedUserIds: selectedIds,
+      assignedUserNames: selectedNames,
+    }))
+  }
+
+  function toggleProjectAssignee(userId) {
+    const normalizedUserId = String(userId || '').trim()
+    if (!normalizedUserId) return
+    setProjectForm((current) => {
+      const hasUser = current.assignedUserIds.includes(normalizedUserId)
+      const nextIds = hasUser
+        ? current.assignedUserIds.filter((id) => id !== normalizedUserId)
+        : [...current.assignedUserIds, normalizedUserId]
+      const nextNames = nextIds.map((id) => {
+        const selectedUser = outsourceUsers.find((item) => item.id === id)
+        return getOutsourceUserLabel(selectedUser)
+      })
+
+      return {
+        ...current,
+        assignedUserIds: nextIds,
+        assignedUserNames: nextNames,
+      }
+    })
+  }
+
+  function applyServiceAssignees(ids) {
+    const selectedIds = Array.from(new Set((Array.isArray(ids) ? ids : []).filter(Boolean)))
+    const selectedNames = selectedIds.map((id) => {
+      const selectedUser = outsourceUsers.find((item) => item.id === id)
+      return getOutsourceUserLabel(selectedUser)
+    })
+
+    setServiceForm((current) => ({
+      ...current,
+      assignedUserIds: selectedIds,
+      assignedUserNames: selectedNames,
+      assignedUserId: selectedIds[0] || '',
+      assignedUserName: selectedNames[0] || '',
+    }))
+  }
+
+  function toggleServiceAssignee(userId) {
+    const normalizedUserId = String(userId || '').trim()
+    if (!normalizedUserId) return
+    setServiceForm((current) => {
+      const hasUser = current.assignedUserIds.includes(normalizedUserId)
+      const nextIds = hasUser
+        ? current.assignedUserIds.filter((id) => id !== normalizedUserId)
+        : [...current.assignedUserIds, normalizedUserId]
+      const nextNames = nextIds.map((id) => {
+        const selectedUser = outsourceUsers.find((item) => item.id === id)
+        return getOutsourceUserLabel(selectedUser)
+      })
+
+      return {
+        ...current,
+        assignedUserIds: nextIds,
+        assignedUserNames: nextNames,
+        assignedUserId: nextIds[0] || '',
+        assignedUserName: nextNames[0] || '',
+      }
+    })
+  }
+
   function handleServiceInput(event) {
     const { name, value } = event.target
     setServiceForm((current) => {
+      if (name === 'assignedUserIds') {
+        const selectedIds = Array.from(event.target.selectedOptions || []).map((option) => option.value)
+        const selectedUsers = selectedIds
+          .map((id) => outsourceUsers.find((item) => item.id === id))
+          .filter(Boolean)
+        const selectedNames = selectedUsers.map(
+          (item) => item.displayName || item.email || 'Outsource user',
+        )
+
+        return {
+          ...current,
+          assignedUserIds: selectedIds,
+          assignedUserNames: selectedNames,
+          assignedUserId: selectedIds[0] || '',
+          assignedUserName: selectedNames[0] || '',
+        }
+      }
+
       if (name === 'billingType') {
         const next = { ...current, billingType: value }
 
@@ -546,6 +723,10 @@ export default function ProjectsPage() {
       if (name === 'deliveryType') {
         const next = { ...current, deliveryType: value }
         if (value !== 'outsource') {
+          next.assignedUserId = ''
+          next.assignedUserName = ''
+          next.assignedUserIds = []
+          next.assignedUserNames = []
           next.outsourcePercentage = ''
           next.recurringOutsourcePercentage = ''
           next.outsourceServiceFee = ''
@@ -612,6 +793,10 @@ export default function ProjectsPage() {
       (serviceForm.billingType === 'one-time' || serviceForm.billingType === 'hybrid')
 
     if (serviceForm.deliveryType === 'outsource') {
+      if (!Array.isArray(serviceForm.assignedUserIds) || serviceForm.assignedUserIds.length === 0) {
+        return 'Please assign this outsource service to at least one outsource user.'
+      }
+
       const percentage = Number(serviceForm.outsourcePercentage) || 0
       if (percentage < 0 || percentage > 100) {
         return 'Outsource percentage must be between 0 and 100.'
@@ -707,6 +892,40 @@ export default function ProjectsPage() {
     return ''
   }
 
+  async function syncOutsourcePortalForService(serviceId, payload) {
+    const selectedProject = projects.find((item) => item.id === payload.projectId)
+    const projectName = selectedProject?.projectName || ''
+    const assignedUserIds = Array.isArray(payload.assignedUserIds)
+      ? payload.assignedUserIds.filter(Boolean)
+      : payload.assignedUserId
+        ? [payload.assignedUserId]
+        : []
+    const assignedUserNames = Array.isArray(payload.assignedUserNames)
+      ? payload.assignedUserNames.filter(Boolean)
+      : payload.assignedUserName
+        ? [payload.assignedUserName]
+        : []
+
+    if (payload.deliveryType !== 'outsource' || assignedUserIds.length === 0) {
+      await deleteOutsourcePortalsByService(serviceId)
+      return
+    }
+
+    await upsertOutsourcePortalByService({
+      assignedUserId: assignedUserIds[0] || '',
+      assignedUserName: assignedUserNames[0] || '',
+      assignedUserIds,
+      assignedUserNames,
+      projectId: payload.projectId,
+      projectName,
+      serviceId,
+      serviceName: payload.serviceName,
+      timelineStart: payload.recurringStart || '',
+      timelineEnd: payload.recurringOngoing ? '' : payload.recurringEnd || '',
+      notes: payload.notes || '',
+    })
+  }
+
   async function submitProject(event) {
     event.preventDefault()
     setProjectError('')
@@ -747,6 +966,8 @@ export default function ProjectsPage() {
         deadline: '',
         status: PROJECT_STATUSES[0],
         notes: '',
+        assignedUserIds: [],
+        assignedUserNames: [],
         recurringPaused: false,
         recurringCancelled: false,
       })
@@ -780,10 +1001,16 @@ export default function ProjectsPage() {
     setSubmittingService(true)
 
     try {
+      let savedServiceId = editingServiceId
       if (editingServiceId) {
         await updateService(editingServiceId, serviceForm)
       } else {
-        await addServiceToProject(serviceForm)
+        const createdService = await addServiceToProject(serviceForm)
+        savedServiceId = createdService?.id || ''
+      }
+
+      if (savedServiceId) {
+        await syncOutsourcePortalForService(savedServiceId, serviceForm)
       }
 
       try {
@@ -857,6 +1084,7 @@ export default function ProjectsPage() {
     try {
       setServiceError('')
       await deleteService(serviceId)
+      await deleteOutsourcePortalsByService(serviceId)
       if (editingServiceId === serviceId) {
         setEditingServiceId(null)
         setServiceForm(createInitialServiceForm())
@@ -909,6 +1137,8 @@ export default function ProjectsPage() {
       deadline: '',
       status: PROJECT_STATUSES[0],
       notes: '',
+      assignedUserIds: [],
+      assignedUserNames: [],
       recurringPaused: false,
       recurringCancelled: false,
     })
@@ -1019,6 +1249,12 @@ export default function ProjectsPage() {
       deadline: project.deadline || '',
       status: project.status || PROJECT_STATUSES[0],
       notes: project.notes || '',
+      assignedUserIds: Array.isArray(project.assignedUserIds)
+        ? project.assignedUserIds.filter(Boolean)
+        : [],
+      assignedUserNames: Array.isArray(project.assignedUserNames)
+        ? project.assignedUserNames.filter(Boolean)
+        : [],
       recurringPaused: Boolean(project.recurringPaused),
       recurringCancelled: Boolean(project.recurringCancelled),
     })
@@ -1080,6 +1316,76 @@ export default function ProjectsPage() {
             <input name="deadline" type="date" value={projectForm.deadline} onChange={handleProjectInput} className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </div>
           <textarea name="notes" value={projectForm.notes} onChange={handleProjectInput} placeholder="Notes" className="h-20 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-slate-700">Project assignees (optional)</label>
+              <div className="flex items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => applyProjectAssignees(outsourceUsers.map((item) => item.id))}
+                  className="rounded-md px-2 py-1 font-medium text-slate-500 hover:bg-slate-200"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyProjectAssignees([])}
+                  className="rounded-md px-2 py-1 font-medium text-slate-500 hover:bg-slate-200"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <input
+              value={projectAssigneeSearch}
+              onChange={(event) => setProjectAssigneeSearch(event.target.value)}
+              placeholder="Search outsource users..."
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+            />
+            <div className="max-h-32 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+              {filteredProjectAssignees.length ? (
+                filteredProjectAssignees.map((outsourceUser) => {
+                  const isSelected = projectForm.assignedUserIds.includes(outsourceUser.id)
+                  return (
+                    <button
+                      key={outsourceUser.id}
+                      type="button"
+                      onClick={() => toggleProjectAssignee(outsourceUser.id)}
+                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition ${
+                        isSelected
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="truncate">{getOutsourceUserLabel(outsourceUser)}</span>
+                      <span>{isSelected ? 'Selected' : 'Select'}</span>
+                    </button>
+                  )
+                })
+              ) : (
+                <p className="px-2 py-1 text-xs text-slate-400">No matching users.</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {projectForm.assignedUserNames.length ? (
+                projectForm.assignedUserNames.map((name, index) => {
+                  const id = projectForm.assignedUserIds[index]
+                  return (
+                    <button
+                      key={`${id || 'project-user'}_${index}`}
+                      type="button"
+                      onClick={() => toggleProjectAssignee(id)}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                    >
+                      {name} ×
+                    </button>
+                  )
+                })
+              ) : (
+                <p className="text-[11px] text-slate-400">No assignees selected.</p>
+              )}
+            </div>
+          </div>
           {projectForm.type === 'Monthly' || projectForm.type === 'One-time + Monthly' ? (
             <div className="grid gap-2 text-sm text-slate-700">
               <label className="flex items-center gap-2">
@@ -1271,6 +1577,82 @@ export default function ProjectsPage() {
               </div>
             )}
           </div>
+
+          {serviceForm.deliveryType === 'outsource' ? (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-semibold text-slate-700">Assigned outsource users</label>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => applyServiceAssignees(outsourceUsers.map((item) => item.id))}
+                    className="rounded-md px-2 py-1 font-medium text-slate-500 hover:bg-slate-200"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyServiceAssignees([])}
+                    className="rounded-md px-2 py-1 font-medium text-slate-500 hover:bg-slate-200"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <input
+                value={serviceAssigneeSearch}
+                onChange={(event) => setServiceAssigneeSearch(event.target.value)}
+                placeholder="Search outsource users..."
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2">
+                {filteredServiceAssignees.length ? (
+                  filteredServiceAssignees.map((outsourceUser) => {
+                    const isSelected = serviceForm.assignedUserIds.includes(outsourceUser.id)
+                    return (
+                      <button
+                        key={outsourceUser.id}
+                        type="button"
+                        onClick={() => toggleServiceAssignee(outsourceUser.id)}
+                        className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition ${
+                          isSelected
+                            ? 'bg-slate-900 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="truncate">{getOutsourceUserLabel(outsourceUser)}</span>
+                        <span>{isSelected ? 'Selected' : 'Select'}</span>
+                      </button>
+                    )
+                  })
+                ) : (
+                  <p className="px-2 py-1 text-xs text-slate-400">No matching users.</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {serviceForm.assignedUserNames.length ? (
+                  serviceForm.assignedUserNames.map((name, index) => {
+                    const id = serviceForm.assignedUserIds[index]
+                    return (
+                      <button
+                        key={`${id || 'service-user'}_${index}`}
+                        type="button"
+                        onClick={() => toggleServiceAssignee(id)}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                      >
+                        {name} ×
+                      </button>
+                    )
+                  })
+                ) : (
+                  <p className="text-[11px] text-slate-400">No assignees selected.</p>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                One click per user. No Ctrl/Cmd multi-select required.
+              </p>
+            </div>
+          ) : null}
 
           {serviceForm.deliveryType === 'outsource' ? (
             <div className="grid gap-3 sm:grid-cols-2">

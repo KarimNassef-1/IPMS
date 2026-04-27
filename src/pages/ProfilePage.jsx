@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react'
 import ModuleShell from '../components/layout/ModuleShell'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
+import { changeUserPasswordWithReauth } from '../services/changePasswordWithReauth'
+import { changeUserEmailWithReauth } from '../services/changeEmailWithReauth'
+import { generateAndStoreSafeCode, validateSafeCode } from '../services/safeCodeService'
+import { useLocation } from 'react-router-dom'
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -13,7 +17,8 @@ function fileToDataUrl(file) {
 }
 
 export default function ProfilePage() {
-  const { user, profile, updateProfileSettings } = useAuth()
+  const { user, profile, updateProfileSettings, role, isAdmin } = useAuth()
+  const location = useLocation()
   const toast = useToast()
   const [name, setName] = useState('')
   const [photoURL, setPhotoURL] = useState('')
@@ -71,53 +76,190 @@ export default function ProfilePage() {
     }
   }
 
-  // Password reset state
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordLoading, setPasswordLoading] = useState(false)
 
-  async function handlePasswordReset(e) {
-    e.preventDefault();
-    setPasswordLoading(true);
-    setStatus('');
-    setStatusType('neutral');
+  const [safeCodeLoading, setSafeCodeLoading] = useState(false)
+  const [generatedSafeCode, setGeneratedSafeCode] = useState('')
+  const [generatedSafeCodeExpiry, setGeneratedSafeCodeExpiry] = useState('')
+
+  const [secureCode, setSecureCode] = useState('')
+  const [secureCurrentPassword, setSecureCurrentPassword] = useState('')
+  const [newLoginEmail, setNewLoginEmail] = useState('')
+  const [secureNewPassword, setSecureNewPassword] = useState('')
+  const [secureConfirmPassword, setSecureConfirmPassword] = useState('')
+  const [secureLoading, setSecureLoading] = useState(false)
+
+  async function handlePasswordReset(event) {
+    event.preventDefault()
+    setPasswordLoading(true)
+    setStatus('')
+    setStatusType('neutral')
+
     if (!currentPassword) {
-      setStatus('Please enter your current password.');
-      setStatusType('error');
-      setPasswordLoading(false);
-      return;
+      setStatus('Please enter your current password.')
+      setStatusType('error')
+      setPasswordLoading(false)
+      return
     }
+
     if (!newPassword || newPassword.length < 6) {
-      setStatus('Password must be at least 6 characters.');
-      setStatusType('error');
-      setPasswordLoading(false);
-      return;
+      setStatus('Password must be at least 6 characters.')
+      setStatusType('error')
+      setPasswordLoading(false)
+      return
     }
+
     if (newPassword !== confirmPassword) {
-      setStatus('Passwords do not match.');
-      setStatusType('error');
-      setPasswordLoading(false);
-      return;
+      setStatus('Passwords do not match.')
+      setStatusType('error')
+      setPasswordLoading(false)
+      return
     }
+
     try {
-      const { changeUserPasswordWithReauth } = await import('../services/changePasswordWithReauth');
-      await changeUserPasswordWithReauth(currentPassword, newPassword);
-      setStatus('Password updated successfully.');
-      setStatusType('success');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      await changeUserPasswordWithReauth(currentPassword, newPassword)
+      setStatus('Password updated successfully.')
+      setStatusType('success')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
     } catch (error) {
-      setStatus(error?.message || 'Failed to update password.');
-      setStatusType('error');
+      setStatus(error?.message || 'Failed to update password.')
+      setStatusType('error')
     } finally {
-      setPasswordLoading(false);
+      setPasswordLoading(false)
+    }
+  }
+
+  async function onGenerateSafeCode() {
+    if (!isAdmin || !user?.uid) return
+    setSafeCodeLoading(true)
+    setStatus('')
+
+    try {
+      const payload = await generateAndStoreSafeCode({
+        generatedBy: user.uid,
+        generatedByName: profile?.name || user.email || 'Admin',
+      })
+      setGeneratedSafeCode(payload.code)
+      setGeneratedSafeCodeExpiry(payload.expiresAt)
+      setStatus('Safe code generated. Share it securely with the outsource user.')
+      setStatusType('success')
+    } catch (error) {
+      setStatus(error?.message || 'Failed to generate safe code.')
+      setStatusType('error')
+    } finally {
+      setSafeCodeLoading(false)
+    }
+  }
+
+  async function copyGeneratedSafeCode() {
+    if (!generatedSafeCode) return
+    try {
+      await navigator.clipboard.writeText(generatedSafeCode)
+      setStatus('Safe code copied.')
+      setStatusType('success')
+    } catch {
+      setStatus('Copy failed. Please copy the code manually.')
+      setStatusType('error')
+    }
+  }
+
+  async function onSubmitOutsourceCredentialUpdate(event) {
+    event.preventDefault()
+    if (role !== 'outsource') return
+
+    setSecureLoading(true)
+    setStatus('')
+    setStatusType('neutral')
+
+    const normalizedEmail = String(newLoginEmail || '').trim().toLowerCase()
+    const wantsEmailUpdate = normalizedEmail.length > 0
+    const wantsPasswordUpdate = String(secureNewPassword || '').length > 0
+
+    if (!secureCode.trim()) {
+      setStatus('Safe code is required.')
+      setStatusType('error')
+      setSecureLoading(false)
+      return
+    }
+
+    if (!secureCurrentPassword.trim()) {
+      setStatus('Current password is required to confirm your identity.')
+      setStatusType('error')
+      setSecureLoading(false)
+      return
+    }
+
+    if (!wantsEmailUpdate && !wantsPasswordUpdate) {
+      setStatus('Enter a new login email or a new password.')
+      setStatusType('error')
+      setSecureLoading(false)
+      return
+    }
+
+    if (wantsPasswordUpdate) {
+      if (secureNewPassword.length < 6) {
+        setStatus('New password must be at least 6 characters.')
+        setStatusType('error')
+        setSecureLoading(false)
+        return
+      }
+      if (secureNewPassword !== secureConfirmPassword) {
+        setStatus('New password and confirmation do not match.')
+        setStatusType('error')
+        setSecureLoading(false)
+        return
+      }
+    }
+
+    try {
+      const safeCodeResult = await validateSafeCode(secureCode)
+      if (!safeCodeResult.valid) {
+        const reasonMessage =
+          safeCodeResult.reason === 'expired'
+            ? 'Safe code expired. Ask admin to generate a new one.'
+            : 'Invalid safe code.'
+        throw new Error(reasonMessage)
+      }
+
+      if (wantsEmailUpdate && normalizedEmail !== String(user?.email || '').toLowerCase()) {
+        await changeUserEmailWithReauth(secureCurrentPassword, normalizedEmail)
+      }
+
+      if (wantsPasswordUpdate) {
+        await changeUserPasswordWithReauth(secureCurrentPassword, secureNewPassword)
+      }
+
+      setStatus('Credentials updated successfully.')
+      setStatusType('success')
+      setSecureCode('')
+      setSecureCurrentPassword('')
+      setNewLoginEmail('')
+      setSecureNewPassword('')
+      setSecureConfirmPassword('')
+    } catch (error) {
+      setStatus(error?.message || 'Failed to update credentials.')
+      setStatusType('error')
+    } finally {
+      setSecureLoading(false)
     }
   }
 
   return (
     <ModuleShell title="Profile" description="Personalize your identity across the agency workspace.">
+      {profile?.passwordResetRequired || location.state?.forcedCredentialUpdate ? (
+        <section className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-800">Credential update required</p>
+          <p className="mt-1 text-xs text-amber-700">
+            Your account was created by admin. Please update your login email or password before using other pages.
+          </p>
+        </section>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <section className="rounded-3xl border border-slate-200 bg-white p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Preview</p>
@@ -159,16 +301,6 @@ export default function ProfilePage() {
             </label>
 
             <label className="block text-sm font-semibold text-slate-700">
-              Profile Picture URL (optional)
-              <input
-                value={photoURL}
-                onChange={(event) => setPhotoURL(event.target.value)}
-                placeholder="https://... or data:image/..."
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
-              />
-            </label>
-
-            <label className="block text-sm font-semibold text-slate-700">
               Upload Image
               <input
                 type="file"
@@ -201,51 +333,158 @@ export default function ProfilePage() {
             </div>
           </form>
 
-          {/* Password Reset Section */}
-          <div className="mt-8 border-t pt-6">
-            <h4 className="font-bold text-slate-900 mb-2">Reset Password</h4>
-            <form onSubmit={handlePasswordReset} className="space-y-4 max-w-sm">
-              <label className="block text-sm font-semibold text-slate-700">
-                Current Password
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={e => setCurrentPassword(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
-                  required
-                />
-              </label>
-              <label className="block text-sm font-semibold text-slate-700">
-                New Password
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
-                  minLength={6}
-                  required
-                />
-              </label>
-              <label className="block text-sm font-semibold text-slate-700">
-                Confirm Password
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
-                  minLength={6}
-                  required
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={passwordLoading}
-                className="rounded-xl bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {passwordLoading ? 'Updating...' : 'Change Password'}
-              </button>
-            </form>
-          </div>
+          {isAdmin ? (
+            <div className="mt-8 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+              <h4 className="font-bold text-slate-900">Admin Safe Code</h4>
+              <p className="mt-1 text-xs text-slate-600">
+                Generate a one-time safe code for outsource credential updates. It expires after 10 minutes.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onGenerateSafeCode}
+                  disabled={safeCodeLoading}
+                  className="rounded-xl bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {safeCodeLoading ? 'Generating...' : 'Generate Safe Code'}
+                </button>
+                {generatedSafeCode ? (
+                  <button
+                    type="button"
+                    onClick={copyGeneratedSafeCode}
+                    className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+                  >
+                    Copy Code
+                  </button>
+                ) : null}
+              </div>
+              {generatedSafeCode ? (
+                <div className="mt-3 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm">
+                  <p className="font-semibold text-indigo-700">{generatedSafeCode}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Expires: {generatedSafeCodeExpiry ? new Date(generatedSafeCodeExpiry).toLocaleString() : 'N/A'}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {role === 'outsource' ? (
+            <div className="mt-8 border-t pt-6">
+              <h4 className="mb-2 font-bold text-slate-900">Secure Credentials Update</h4>
+              <p className="mb-4 text-xs text-slate-600">
+                Enter the admin safe code first. For security, your current password is still required.
+              </p>
+              <form onSubmit={onSubmitOutsourceCredentialUpdate} className="max-w-md space-y-4">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Safe Code
+                  <input
+                    value={secureCode}
+                    onChange={(event) => setSecureCode(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                    required
+                  />
+                </label>
+
+                <label className="block text-sm font-semibold text-slate-700">
+                  Current Password
+                  <input
+                    type="password"
+                    value={secureCurrentPassword}
+                    onChange={(event) => setSecureCurrentPassword(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                    required
+                  />
+                </label>
+
+                <label className="block text-sm font-semibold text-slate-700">
+                  New Login Email (optional)
+                  <input
+                    type="email"
+                    value={newLoginEmail}
+                    onChange={(event) => setNewLoginEmail(event.target.value)}
+                    placeholder={user?.email || 'name@example.com'}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                  />
+                </label>
+
+                <label className="block text-sm font-semibold text-slate-700">
+                  New Password (optional)
+                  <input
+                    type="password"
+                    value={secureNewPassword}
+                    onChange={(event) => setSecureNewPassword(event.target.value)}
+                    minLength={6}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                  />
+                </label>
+
+                <label className="block text-sm font-semibold text-slate-700">
+                  Confirm New Password
+                  <input
+                    type="password"
+                    value={secureConfirmPassword}
+                    onChange={(event) => setSecureConfirmPassword(event.target.value)}
+                    minLength={6}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={secureLoading}
+                  className="rounded-xl bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {secureLoading ? 'Updating...' : 'Update Credentials'}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="mt-8 border-t pt-6">
+              <h4 className="mb-2 font-bold text-slate-900">Reset Password</h4>
+              <form onSubmit={handlePasswordReset} className="max-w-sm space-y-4">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Current Password
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                    required
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  New Password
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                    minLength={6}
+                    required
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Confirm Password
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-[#8246f6]/20 focus:ring"
+                    minLength={6}
+                    required
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="rounded-xl bg-[#8246f6] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#6f39e7] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {passwordLoading ? 'Updating...' : 'Change Password'}
+                </button>
+              </form>
+            </div>
+          )}
         </section>
       </div>
     </ModuleShell>

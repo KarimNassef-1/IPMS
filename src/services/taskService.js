@@ -16,12 +16,44 @@ import { assertRequiredFields } from "../utils/helpers";
 const TASKS = "tasks";
 const DAILY_TASKS = "daily_tasks";
 
+function normalizeAssignees(payload) {
+	const rawIds = Array.isArray(payload?.assignedUserIds)
+		? payload.assignedUserIds
+		: payload?.assignedToUserId
+			? [payload.assignedToUserId]
+			: [];
+	const assignedUserIds = Array.from(
+		new Set(rawIds.map((id) => String(id || "").trim()).filter(Boolean)),
+	);
+	const fallbackName = String(payload?.assignedTo || "").trim();
+	const rawNames = Array.isArray(payload?.assignedUserNames)
+		? payload.assignedUserNames
+		: fallbackName
+			? [fallbackName]
+			: [];
+	const assignedUserNames = assignedUserIds.map((_, index) =>
+		String(rawNames[index] || fallbackName || "Unassigned").trim(),
+	);
+
+	return {
+		assignedUserIds,
+		assignedUserNames,
+		assignedToUserId: assignedUserIds[0] || "",
+		assignedTo: assignedUserNames[0] || fallbackName || "Unassigned",
+	};
+}
+
 export async function createTask(payload) {
-	assertRequiredFields(payload, ["name", "assignedTo", "priority", "status"]);
+	assertRequiredFields(payload, ["name", "priority", "status"]);
+	const assignees = normalizeAssignees(payload);
+	if (!assignees.assignedUserIds.length) {
+		throw new Error("At least one task assignee is required.");
+	}
 	const firestore = ensureFirebaseReady();
 
 	const data = {
 		...payload,
+		...assignees,
 		locked: Boolean(payload?.locked),
 		createdAt: new Date().toISOString(),
 	};
@@ -70,11 +102,16 @@ export async function restoreTask(payload) {
 }
 
 export async function createDailyTask(payload) {
-	assertRequiredFields(payload, ["name", "assignedTo", "date"]);
+	assertRequiredFields(payload, ["name", "date"]);
+	const assignees = normalizeAssignees(payload);
+	if (!assignees.assignedUserIds.length) {
+		throw new Error("At least one daily task assignee is required.");
+	}
 	const firestore = ensureFirebaseReady();
 
 	const data = {
 		...payload,
+		...assignees,
 		isCompleted: Boolean(payload.isCompleted),
 		locked: Boolean(payload?.locked),
 		createdAt: new Date().toISOString(),

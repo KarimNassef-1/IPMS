@@ -2,6 +2,7 @@ import {
 	addDoc,
 	collection,
 	deleteDoc,
+	documentId,
 	doc,
 	getDocs,
 	onSnapshot,
@@ -16,6 +17,25 @@ import { normalizeServiceCategory } from "../utils/serviceAccess";
 
 const PROJECTS = "projects";
 const SERVICES = "services";
+
+function chunkArray(values, chunkSize = 10) {
+	const source = Array.isArray(values) ? values : [];
+	const chunks = [];
+	for (let index = 0; index < source.length; index += chunkSize) {
+		chunks.push(source.slice(index, index + chunkSize));
+	}
+	return chunks;
+}
+
+function normalizeCategoryList(values) {
+	return Array.from(
+		new Set(
+			(Array.isArray(values) ? values : [])
+				.map((value) => normalizeServiceCategory(value))
+				.filter(Boolean),
+		),
+	);
+}
 
 function money(value) {
 	return Math.max(Number(value) || 0, 0);
@@ -279,6 +299,41 @@ export async function getProjects() {
 	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
+export async function getProjectsByIds(projectIds) {
+	const firestore = ensureFirebaseReady();
+	const ids = Array.from(
+		new Set(
+			(Array.isArray(projectIds) ? projectIds : [])
+				.map((id) => String(id || "").trim())
+				.filter(Boolean),
+		),
+	);
+	if (!ids.length) return [];
+
+	const snapshots = await Promise.all(
+		chunkArray(ids, 10).map((chunk) =>
+			getDocs(
+				query(
+					collection(firestore, PROJECTS),
+					where(documentId(), "in", chunk),
+				),
+			),
+		),
+	);
+
+	return snapshots
+		.flatMap((snapshot) => snapshot.docs)
+		.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+export async function getProjectsByServiceCategories(serviceCategories) {
+	const services = await getServicesByCategories(serviceCategories);
+	const projectIds = services
+		.map((service) => service.projectId)
+		.filter(Boolean);
+	return getProjectsByIds(projectIds);
+}
+
 export function subscribeProjects(onData, onError) {
 	const firestore = ensureFirebaseReady();
 
@@ -349,11 +404,50 @@ export async function getAllServices() {
 	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
+export async function getServicesByCategories(serviceCategories) {
+	const firestore = ensureFirebaseReady();
+	const categories = normalizeCategoryList(serviceCategories);
+	if (!categories.length) return [];
+
+	const servicesQuery = query(
+		collection(firestore, SERVICES),
+		where("serviceCategory", "in", categories),
+	);
+	const snapshot = await getDocs(servicesQuery);
+	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
 export function subscribeAllServices(onData, onError) {
 	const firestore = ensureFirebaseReady();
 
 	return onSnapshot(
 		collection(firestore, SERVICES),
+		(snapshot) => {
+			onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+		},
+		onError,
+	);
+}
+
+export function subscribeServicesByCategories(
+	serviceCategories,
+	onData,
+	onError,
+) {
+	const firestore = ensureFirebaseReady();
+	const categories = normalizeCategoryList(serviceCategories);
+	if (!categories.length) {
+		onData([]);
+		return () => {};
+	}
+
+	const servicesQuery = query(
+		collection(firestore, SERVICES),
+		where("serviceCategory", "in", categories),
+	);
+
+	return onSnapshot(
+		servicesQuery,
 		(snapshot) => {
 			onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 		},

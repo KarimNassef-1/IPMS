@@ -48,18 +48,12 @@ export const EXPENSE_CATEGORIES = [
 
 export const ASSIGNEES = ["Karim", "Youssef"];
 
-export const APP_ROLES = [
-	"admin",
-	"partner",
-	"manager",
-	"finance",
-	"delivery",
-	"viewer",
-];
+export const APP_ROLES = ["admin", "partner", "outsource"];
 
 export const APP_PERMISSION_KEYS = [
 	"dashboard",
 	"projects",
+	"outsourcePortal",
 	"tasks",
 	"dailyTasks",
 	"financials",
@@ -75,6 +69,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
 	partner: [
 		"dashboard",
 		"projects",
+		"outsourcePortal",
 		"tasks",
 		"dailyTasks",
 		"financials",
@@ -83,30 +78,13 @@ export const DEFAULT_ROLE_PERMISSIONS = {
 		"analytics",
 		"profile",
 	],
-	manager: [
-		"dashboard",
-		"projects",
-		"tasks",
-		"dailyTasks",
-		"financials",
-		"analytics",
-		"profile",
-	],
-	finance: [
-		"dashboard",
-		"financials",
-		"expenses",
-		"budgets",
-		"analytics",
-		"profile",
-	],
-	delivery: ["dashboard", "projects", "tasks", "dailyTasks", "profile"],
-	viewer: ["dashboard", "analytics", "profile"],
+	outsource: ["dashboard", "outsourcePortal", "profile"],
 };
 
 export const PERMISSION_LABELS = {
 	dashboard: "Dashboard",
 	projects: "Projects",
+	outsourcePortal: "Work Hub",
 	tasks: "Tasks",
 	dailyTasks: "Daily Tasks",
 	financials: "Financials",

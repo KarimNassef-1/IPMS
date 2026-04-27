@@ -7,10 +7,24 @@ import { createNotification } from '../services/notificationService'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 
+const EXPENSE_LOOKBACK_OPTIONS = [
+  { label: 'Last 30 days', value: 30 },
+  { label: 'Last 90 days', value: 90 },
+  { label: 'Last 180 days', value: 180 },
+  { label: 'Last 365 days', value: 365 },
+]
+
+function toIsoSinceDate(days) {
+  const date = new Date()
+  date.setDate(date.getDate() - Number(days || 0))
+  return date.toISOString()
+}
+
 export default function ExpensesPage() {
   const { user, profile } = useAuth()
   const toast = useToast()
   const [expenses, setExpenses] = useState([])
+  const [lookbackDays, setLookbackDays] = useState(EXPENSE_LOOKBACK_OPTIONS[2].value)
   const [form, setForm] = useState({
     name: '',
     category: EXPENSE_CATEGORIES[0],
@@ -21,13 +35,13 @@ export default function ExpensesPage() {
   })
 
   async function loadExpenses() {
-    const data = await getExpenses()
+    const data = await getExpenses({ sinceDate: toIsoSinceDate(lookbackDays) })
     setExpenses(data)
   }
 
   useEffect(() => {
     loadExpenses()
-  }, [])
+  }, [lookbackDays])
 
   const totalExpenses = useMemo(
     () => expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0),
@@ -149,6 +163,21 @@ export default function ExpensesPage() {
           <p className="mt-1 text-sm font-black text-violet-700">{topCategory ? topCategory[0] : '-'}</p>
           <p className="text-xs text-slate-500">{topCategory ? formatCurrency(topCategory[1]) : ''}</p>
         </div>
+      </section>
+
+      <section className="mb-4 rounded-2xl border border-slate-200 bg-white/80 p-3">
+        <label className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+          Expense history window
+          <select
+            value={lookbackDays}
+            onChange={(event) => setLookbackDays(Number(event.target.value) || 180)}
+            className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+          >
+            {EXPENSE_LOOKBACK_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">

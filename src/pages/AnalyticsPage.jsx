@@ -27,19 +27,18 @@ import {
 import {
 	getAllServices,
 	getProjects,
+	getProjectsByIds,
+	getServicesByCategories,
 	subscribeAllServices,
 	subscribeProjects,
+	subscribeServicesByCategories,
 } from "../services/projectService";
 import { getTasks, subscribeTasks } from "../services/taskService";
 import { calculateRecognizedPaidRevenue, groupByMonth } from "../utils/calculations";
 import { formatCurrency, parseMoney } from "../utils/helpers";
 import { serviceAgencyShareValue } from "../utils/serviceFinance";
 import { useAuth } from "../hooks/useAuth";
-import {
-	createAllowedServiceCategorySet,
-	filterProjectsByVisibleServices,
-	filterServicesByAccess,
-} from "../utils/serviceAccess";
+import { createAllowedServiceCategorySet } from "../utils/serviceAccess";
 
 const PIE_COLORS = ["#8246f6", "#a989f8", "#d2c2ff", "#5f2fe2", "#7b5eea", "#b7a2fa"];
 const TYPE_COLORS = ["#8246f6", "#22c55e"];
@@ -127,39 +126,40 @@ export default function AnalyticsPage() {
 
 	useEffect(() => {
 		let unsubscribers = [];
-		let latestServices = [];
-		let latestProjects = [];
-
-		const applyProjectScope = (projectItems, scopedServiceItems) => {
-			if (hasFullFinancialAccess) return projectItems;
-			return filterProjectsByVisibleServices(projectItems, scopedServiceItems);
-		};
+		const categoryList = Array.from(allowedCategorySet);
 
 		async function initialize() {
 			setLoading(true);
 			setError("");
+			const sinceDate = new Date(new Date().setMonth(new Date().getMonth() - 24)).toISOString();
 
 			try {
-				const [tx, ex, pr, se, ta] = await Promise.all([
-					getTransactions(),
-					getExpenses(),
-					getProjects(),
-					getAllServices(),
+				const [tx, ex, ta] = await Promise.all([
+					getTransactions({ sinceDate }),
+					getExpenses({ sinceDate }),
 					getTasks(),
 				]);
 
-				const scopedServices = filterServicesByAccess(se, {
-					isAdmin: hasFullFinancialAccess,
-					allowedCategorySet,
-				});
-				const scopedProjects = applyProjectScope(pr, scopedServices);
-				latestServices = scopedServices;
-				latestProjects = pr;
+				let initialServices = [];
+				let initialProjects = [];
+				if (hasFullFinancialAccess) {
+					[initialServices, initialProjects] = await Promise.all([
+						getAllServices(),
+						getProjects(),
+					]);
+				} else {
+					initialServices = await getServicesByCategories(categoryList);
+					initialProjects = await getProjectsByIds(
+						initialServices
+							.map((service) => service.projectId)
+							.filter(Boolean),
+					);
+				}
 
 				setTransactions(tx);
 				setExpenses(ex);
-				setProjects(scopedProjects);
-				setServices(scopedServices);
+				setProjects(initialProjects);
+				setServices(initialServices);
 				setTasks(ta);
 
 				const onStreamError = (streamError) => {
@@ -169,19 +169,24 @@ export default function AnalyticsPage() {
 				unsubscribers = [
 					subscribeTransactions(setTransactions, onStreamError),
 					subscribeExpenses(setExpenses, onStreamError),
-					subscribeProjects((items) => {
-						latestProjects = items;
-						setProjects(applyProjectScope(items, latestServices));
-					}, onStreamError),
-					subscribeAllServices((items) => {
-						const scopedServices = filterServicesByAccess(items, {
-							isAdmin: hasFullFinancialAccess,
-							allowedCategorySet,
-						});
-						latestServices = scopedServices;
-						setServices(scopedServices);
-						setProjects((currentProjects) => applyProjectScope(latestProjects.length ? latestProjects : currentProjects, scopedServices));
-					}, onStreamError),
+					...(hasFullFinancialAccess
+						? [
+							subscribeProjects((items) => {
+								setProjects(items);
+							}, onStreamError),
+							subscribeAllServices((items) => {
+								setServices(items);
+							}, onStreamError),
+						]
+						: [
+							subscribeServicesByCategories(categoryList, async (items) => {
+								setServices(items);
+								const scopedProjects = await getProjectsByIds(
+									items.map((service) => service.projectId).filter(Boolean),
+								);
+								setProjects(scopedProjects);
+							}, onStreamError),
+						]),
 					subscribeTasks(setTasks, onStreamError),
 				];
 			} catch (loadError) {

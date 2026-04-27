@@ -5,6 +5,8 @@ import {
 	doc,
 	getDocs,
 	onSnapshot,
+	limit,
+	orderBy,
 	query,
 	updateDoc,
 	where,
@@ -12,6 +14,7 @@ import {
 import { ensureFirebaseReady } from "./firebase";
 
 const NOTIFICATIONS = "notifications";
+const ADMIN_FEED_HISTORY_LIMIT = 200;
 
 export async function createNotification(payload) {
 	const firestore = ensureFirebaseReady();
@@ -44,11 +47,41 @@ export async function getAllNotifications() {
 	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
+export async function getAdminFeedNotifications() {
+	const firestore = ensureFirebaseReady();
+	const adminFeedQuery = query(
+		collection(firestore, NOTIFICATIONS),
+		where("adminFeed", "==", true),
+		orderBy("date", "desc"),
+		limit(ADMIN_FEED_HISTORY_LIMIT),
+	);
+	const snapshot = await getDocs(adminFeedQuery);
+	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
 export function subscribeNotifications(onData, onError) {
 	const firestore = ensureFirebaseReady();
 
 	return onSnapshot(
 		collection(firestore, NOTIFICATIONS),
+		(snapshot) => {
+			onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+		},
+		onError,
+	);
+}
+
+export function subscribeAdminFeedNotifications(onData, onError) {
+	const firestore = ensureFirebaseReady();
+	const adminFeedQuery = query(
+		collection(firestore, NOTIFICATIONS),
+		where("adminFeed", "==", true),
+		orderBy("date", "desc"),
+		limit(ADMIN_FEED_HISTORY_LIMIT),
+	);
+
+	return onSnapshot(
+		adminFeedQuery,
 		(snapshot) => {
 			onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
 		},

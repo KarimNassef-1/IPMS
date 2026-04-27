@@ -10,19 +10,18 @@ import {
 import {
   getAllServices,
   getProjects,
+  getProjectsByIds,
+  getServicesByCategories,
   subscribeAllServices,
   subscribeProjects,
+  subscribeServicesByCategories,
 } from '../services/projectService'
 import { getTasks, subscribeTasks } from '../services/taskService'
 import { calculateRecognizedPaidRevenue } from '../utils/calculations'
 import { formatCurrency, formatDate, parseMoney } from '../utils/helpers'
 import { serviceAgencyShareValue, serviceContractValue } from '../utils/serviceFinance'
 import { useAuth } from '../hooks/useAuth'
-import {
-  createAllowedServiceCategorySet,
-  filterProjectsByVisibleServices,
-  filterServicesByAccess,
-} from '../utils/serviceAccess'
+import { createAllowedServiceCategorySet } from '../utils/serviceAccess'
 
 function isPendingInstallment(installment) {
   return String(installment?.status || '').toLowerCase() !== 'paid'
@@ -53,41 +52,36 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let unsubscribers = []
-    let latestServices = []
-    let latestProjects = []
-
-    const applyProjectScope = (projectItems, scopedServiceItems) => {
-      if (hasFullFinancialAccess) return projectItems
-      return filterProjectsByVisibleServices(projectItems, scopedServiceItems)
-    }
+    const categoryList = Array.from(allowedCategorySet)
 
     async function initialize() {
       setLoading(true)
       setError('')
+      const sinceDate = new Date(new Date().setMonth(new Date().getMonth() - 18)).toISOString()
 
       try {
-        const [tx, ex, pr, sv, ta] = await Promise.all([
-          getTransactions(),
-          getExpenses(),
-          getProjects(),
-          getAllServices(),
+        const [tx, ex, ta] = await Promise.all([
+          getTransactions({ sinceDate }),
+          getExpenses({ sinceDate }),
           getTasks(),
         ])
 
-        const scopedServices = filterServicesByAccess(sv, {
-          isAdmin: hasFullFinancialAccess,
-          allowedCategorySet,
-        })
-        const scopedProjects = hasFullFinancialAccess
-          ? pr
-          : filterProjectsByVisibleServices(pr, scopedServices)
-        latestServices = scopedServices
-        latestProjects = pr
+        let initialServices = []
+        let initialProjects = []
+
+        if (hasFullFinancialAccess) {
+          ;[initialServices, initialProjects] = await Promise.all([getAllServices(), getProjects()])
+        } else {
+          initialServices = await getServicesByCategories(categoryList)
+          initialProjects = await getProjectsByIds(
+            initialServices.map((service) => service.projectId).filter(Boolean),
+          )
+        }
 
         setTransactions(tx)
         setExpenses(ex)
-        setProjects(scopedProjects)
-        setServices(scopedServices)
+        setProjects(initialProjects)
+        setServices(initialServices)
         setTasks(ta)
         setLastUpdated(new Date().toISOString())
 
@@ -104,23 +98,27 @@ export default function DashboardPage() {
             setExpenses(items)
             setLastUpdated(new Date().toISOString())
           }, handleStreamError),
-          subscribeProjects((items) => {
-            latestProjects = items
-            const scopedProjects = applyProjectScope(items, latestServices)
-            setProjects(scopedProjects)
-            setLastUpdated(new Date().toISOString())
-          }, handleStreamError),
-          subscribeAllServices((items) => {
-            const scopedServices = filterServicesByAccess(items, {
-              isAdmin: hasFullFinancialAccess,
-              allowedCategorySet,
-            })
-            latestServices = scopedServices
-
-            setServices(scopedServices)
-            setProjects((currentProjects) => applyProjectScope(latestProjects.length ? latestProjects : currentProjects, scopedServices))
-            setLastUpdated(new Date().toISOString())
-          }, handleStreamError),
+          ...(hasFullFinancialAccess
+            ? [
+                subscribeProjects((items) => {
+                  setProjects(items)
+                  setLastUpdated(new Date().toISOString())
+                }, handleStreamError),
+                subscribeAllServices((items) => {
+                  setServices(items)
+                  setLastUpdated(new Date().toISOString())
+                }, handleStreamError),
+              ]
+            : [
+                subscribeServicesByCategories(categoryList, async (items) => {
+                  setServices(items)
+                  const scopedProjects = await getProjectsByIds(
+                    items.map((service) => service.projectId).filter(Boolean),
+                  )
+                  setProjects(scopedProjects)
+                  setLastUpdated(new Date().toISOString())
+                }, handleStreamError),
+              ]),
           subscribeTasks((items) => {
             setTasks(items)
             setLastUpdated(new Date().toISOString())

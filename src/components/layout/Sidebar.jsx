@@ -6,6 +6,7 @@ import logomarkNoBg from '../../../img/no bg logos/logomarknobg.webp'
 const navigationItems = [
   { label: 'Dashboard', to: '/', icon: 'dashboard' },
   { label: 'Projects', to: '/projects', icon: 'projects' },
+  { label: 'Work Hub', to: '/outsource', icon: 'outsourcePortal' },
   { label: 'Tasks', to: '/tasks', icon: 'tasks' },
   {
     label: 'Financials',
@@ -82,6 +83,14 @@ function NavIcon({ name, isActive, isSidebarCollapsed }) {
           <path d="M8 12l2.4 2.4L16 9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )
+    case 'outsourcePortal':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden="true">
+          <path d="M12 3.5 3.8 8.3 12 13l8.2-4.7L12 3.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
+          <path d="M3.8 15.7 12 20.5l8.2-4.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M12 13v7.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        </svg>
+      )
     case 'daily':
       return (
         <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden="true">
@@ -150,7 +159,7 @@ function NavIcon({ name, isActive, isSidebarCollapsed }) {
 }
 
 export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
-  const { isAdmin, hasAccess, logout } = useAuth()
+  const { isAdmin, role, hasAccess, logout } = useAuth()
   const { pathname } = useLocation()
   const [openMenus, setOpenMenus] = useState({ financials: true })
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
@@ -165,10 +174,22 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
     }
   }
 
-  const filteredItems = filterNavigationByRole(navigationItems, isAdmin).filter((item) => {
+  const filteredItems = filterNavigationByRole(
+    navigationItems.map((item) => {
+      if (item.to === '/' && role === 'outsource') {
+        return { ...item, label: 'My Dashboard' }
+      }
+      if (item.to === '/outsource') {
+        return { ...item, label: 'Work Hub' }
+      }
+      return item
+    }),
+    isAdmin,
+  ).filter((item) => {
     const permissionByRoute = {
       '/': 'dashboard',
       '/projects': 'projects',
+      '/outsource': 'outsourcePortal',
       '/tasks': 'tasks',
       '/financials': 'financials',
       '/expenses': 'expenses',

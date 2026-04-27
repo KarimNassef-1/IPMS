@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
+import { buildManagedLoginEmailFromPhone, normalizePhoneNumber } from '../../utils/helpers'
 
 export default function LoginForm() {
   const navigate = useNavigate()
@@ -22,12 +23,17 @@ export default function LoginForm() {
     setIsSubmitting(true)
 
     try {
-      await login(formData.email, formData.password)
+      const rawIdentifier = String(formData.email || '').trim()
+      const normalizedIdentifier = rawIdentifier.includes('@')
+        ? rawIdentifier
+        : buildManagedLoginEmailFromPhone(normalizePhoneNumber(rawIdentifier))
+
+      await login(normalizedIdentifier, formData.password)
       navigate('/')
     } catch (loginError) {
       let message = ''
       if (loginError?.code === 'auth/invalid-credential') {
-        message = 'Invalid email or password. Recheck credentials and make sure this user exists in Firebase Authentication for this project.'
+        message = 'Invalid login email/phone or password. Recheck credentials and make sure this user exists in Firebase Authentication for this project.'
       } else {
         message = loginError.message || 'Failed to login'
       }
@@ -41,7 +47,7 @@ export default function LoginForm() {
     <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
       <div>
         <label className="mb-2 block text-sm font-semibold text-slate-700" htmlFor="email">
-          Email
+          Email or Phone
         </label>
         <div className="group flex items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-sm transition focus-within:border-[#8246f6] focus-within:ring-2 focus-within:ring-[#d9c6ff]">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-slate-400 transition group-focus-within:text-[#8246f6]" aria-hidden="true">
@@ -56,7 +62,7 @@ export default function LoginForm() {
             className="w-full border-0 bg-transparent px-1 py-1.5 text-slate-900 outline-none placeholder:text-slate-400"
             value={formData.email}
             onChange={handleChange}
-            placeholder="you@infinitepixels.com"
+            placeholder="you@infinitepixels.com or 010xxxxxxx"
           />
         </div>
       </div>

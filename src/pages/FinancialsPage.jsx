@@ -1,6 +1,11 @@
 import ModuleShell from '../components/layout/ModuleShell'
 import { useEffect, useMemo, useState } from 'react'
-import { getAllServices, getProjects } from '../services/projectService'
+import {
+  getAllServices,
+  getProjects,
+  getProjectsByServiceCategories,
+  getServicesByCategories,
+} from '../services/projectService'
 import {
   DISTRIBUTION_PERCENTAGES,
   calculateDistribution,
@@ -40,11 +45,20 @@ export default function FinancialsPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [serviceData, projectData] = await Promise.all([getAllServices(), getProjects()])
-      const scopedServices = filterServicesByAccess(serviceData, {
-        isAdmin: hasFullFinancialAccess,
-        allowedCategorySet,
-      })
+      const categories = Array.from(allowedCategorySet)
+      const [serviceData, projectData] = hasFullFinancialAccess
+        ? await Promise.all([getAllServices(), getProjects()])
+        : await Promise.all([
+            getServicesByCategories(categories),
+            getProjectsByServiceCategories(categories),
+          ])
+
+      const scopedServices = hasFullFinancialAccess
+        ? filterServicesByAccess(serviceData, {
+            isAdmin: hasFullFinancialAccess,
+            allowedCategorySet,
+          })
+        : serviceData
       const scopedProjects = hasFullFinancialAccess
         ? projectData
         : filterProjectsByVisibleServices(projectData, scopedServices)

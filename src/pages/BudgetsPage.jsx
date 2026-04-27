@@ -1,6 +1,6 @@
 import ModuleShell from '../components/layout/ModuleShell'
 import { useEffect, useMemo, useState } from 'react'
-import { getAllServices } from '../services/projectService'
+import { getAllServices, getServicesByCategories } from '../services/projectService'
 import { getExpenses } from '../services/financeService'
 import {
   DISTRIBUTION_PERCENTAGES,
@@ -55,11 +55,17 @@ export default function BudgetsPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [serviceData, expenseData] = await Promise.all([getAllServices(), getExpenses()])
-      const scopedServices = filterServicesByAccess(serviceData, {
-        isAdmin: hasFullFinancialAccess,
-        allowedCategorySet,
-      })
+      const sinceDate = new Date(new Date().setMonth(new Date().getMonth() - 18)).toISOString()
+      const categories = Array.from(allowedCategorySet)
+      const [serviceData, expenseData] = hasFullFinancialAccess
+        ? await Promise.all([getAllServices(), getExpenses({ sinceDate })])
+        : await Promise.all([getServicesByCategories(categories), getExpenses({ sinceDate })])
+      const scopedServices = hasFullFinancialAccess
+        ? filterServicesByAccess(serviceData, {
+            isAdmin: hasFullFinancialAccess,
+            allowedCategorySet,
+          })
+        : serviceData
 
       setServices(scopedServices)
       setExpenses(expenseData)

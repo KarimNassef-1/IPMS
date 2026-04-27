@@ -46,11 +46,14 @@ function FullPageLoader() {
 }
 
 export function ProtectedRoute() {
-  const { user, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
   const location = useLocation()
 
   if (loading) return <FullPageLoader />
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />
+  if (profile?.passwordResetRequired && location.pathname !== '/profile') {
+    return <Navigate to="/profile" replace state={{ forcedCredentialUpdate: true }} />
+  }
 
   return <Outlet />
 }

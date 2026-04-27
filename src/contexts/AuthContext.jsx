@@ -18,35 +18,16 @@ import {
 
 const INACTIVITY_LOGOUT_MS = 5 * 60 * 1000
 
-function resolveDefaultRole(email) {
-  const normalized = String(email || '').trim().toLowerCase()
-
-  if (normalized === 'thefightholic111@gmail.com' || normalized === 'karim@infinitepixels.com') {
-    return 'admin'
-  }
-
-  return 'partner'
-}
-
 function normalizeRole(roleValue) {
   const normalized = String(roleValue || '').trim().toLowerCase()
   if (normalized === 'admin') return 'admin'
   if (normalized === 'partner') return 'partner'
+  if (normalized === 'outsource') return 'outsource'
   if (normalized === 'manager') return 'manager'
   if (normalized === 'finance') return 'finance'
   if (normalized === 'delivery') return 'delivery'
   if (normalized === 'viewer') return 'viewer'
   return null
-}
-
-function isAdminIdentityLogin(email, name) {
-  const normalizedEmail = String(email || '').trim().toLowerCase()
-  const normalizedName = String(name || '').trim().toLowerCase()
-
-  return (
-    normalizedEmail === 'thefightholic111@gmail.com' ||
-    normalizedName === 'karim nassef'
-  )
 }
 
 function normalizeAccountStatus(value) {
@@ -74,6 +55,7 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [teams, setTeams] = useState([])
   const [rolePermissions, setRolePermissions] = useState(DEFAULT_ROLE_PERMISSIONS)
+  const [rolePermissionsReady, setRolePermissionsReady] = useState(false)
   const [loading, setLoading] = useState(firebaseReady)
 
   useEffect(() => {
@@ -82,9 +64,11 @@ export function AuthProvider({ children }) {
     const unsubscribePermissions = subscribeRolePermissions(
       (map) => {
         setRolePermissions({ ...DEFAULT_ROLE_PERMISSIONS, ...map })
+        setRolePermissionsReady(true)
       },
       () => {
         setRolePermissions(DEFAULT_ROLE_PERMISSIONS)
+        setRolePermissionsReady(true)
       },
     )
 
@@ -194,26 +178,6 @@ export function AuthProvider({ children }) {
           if (normalizedRole) {
             setRole(normalizedRole)
           } else {
-            const defaultRole = resolveDefaultRole(firebaseUser.email)
-
-            await setDoc(
-              userDocRef,
-              {
-                ...userData,
-                name: userData.name || firebaseUser.displayName || 'User',
-                email: userData.email || firebaseUser.email || '',
-                role: defaultRole,
-              },
-              { merge: true },
-            )
-
-            setRole(defaultRole)
-          }
-
-        } else {
-          const defaultRole = resolveDefaultRole(firebaseUser.email)
-
-          if (defaultRole !== 'admin') {
             await signOut(auth)
             setUser(null)
             setRole(null)
@@ -222,22 +186,13 @@ export function AuthProvider({ children }) {
             return
           }
 
-          await setDoc(userDocRef, {
-            name: firebaseUser.displayName || 'User',
-            photoURL: firebaseUser.photoURL || '',
-            email: firebaseUser.email || '',
-            role: defaultRole,
-            teamIds: [],
-            createdAt: new Date().toISOString(),
-          })
-
-          setProfile({
-            name: firebaseUser.displayName || 'User',
-            photoURL: firebaseUser.photoURL || '',
-            teamIds: [],
-          })
-
-          setRole(defaultRole)
+        } else {
+          await signOut(auth)
+          setUser(null)
+          setRole(null)
+          setProfile(null)
+          setLoading(false)
+          return
 
         }
       } catch (error) {
@@ -285,10 +240,6 @@ export function AuthProvider({ children }) {
       String(credential?.user?.photoURL || '').trim() ||
       ''
     const actorEmail = String(credential?.user?.email || normalizedEmail).trim().toLowerCase()
-
-    if (isAdminIdentityLogin(actorEmail, actorName)) {
-      return credential
-    }
 
     try {
       const loggedInAt = new Date().toISOString()
@@ -357,7 +308,7 @@ export function AuthProvider({ children }) {
         profile,
         serviceCategories: resolvedServiceCategories,
         rolePermissions,
-        loading,
+        loading: loading || !rolePermissionsReady,
         firebaseReady,
         firebaseError,
         login,
@@ -366,15 +317,19 @@ export function AuthProvider({ children }) {
         canAccessServiceCategory: (category) =>
           canAccessServiceCategory(category, allowedCategorySet, role === 'admin'),
         hasAccess: (permissionKey) => {
+          const configuredPermissions = rolePermissions?.[role]
+          if (Array.isArray(configuredPermissions)) {
+            return configuredPermissions.includes(permissionKey)
+          }
           if (role === 'admin') return true
-          const permissions = rolePermissions?.[role] || []
+          const permissions = DEFAULT_ROLE_PERMISSIONS?.[role] || []
           return permissions.includes(permissionKey)
         },
         isAdmin: role === 'admin',
         isPartner: role === 'partner',
       }
     },
-    [user, role, profile, teams, rolePermissions, loading, updateProfileSettings],
+    [user, role, profile, teams, rolePermissions, loading, rolePermissionsReady, updateProfileSettings],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

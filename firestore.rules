@@ -25,8 +25,22 @@ service cloud.firestore {
       return isAdmin() || isPartner();
     }
 
-    function isTaskAssignedToYoussef(taskData) {
-      return taskData.assignedTo == 'Youssef';
+    function containsUid(values) {
+      return values is list && request.auth.uid in values;
+    }
+
+    function isAssignedOutsourcePortalUser(data) {
+      return isSignedIn() && (
+        containsUid(data.assignedUserIds) ||
+        data.assignedUserId == request.auth.uid
+      );
+    }
+
+    function isTaskAssignedToCurrentUser(taskData) {
+      return isSignedIn() && (
+        containsUid(taskData.assignedUserIds) ||
+        taskData.assignedToUserId == request.auth.uid
+      );
     }
 
     match /users/{userId} {
@@ -40,7 +54,22 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       // Role changes must be admin-controlled only.
-      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.accountStatus == resource.data.accountStatus &&
+        request.resource.data.teamIds == resource.data.teamIds &&
+        request.resource.data.outsourceServices == resource.data.outsourceServices &&
+        request.resource.data.websiteTracks == resource.data.websiteTracks &&
+        request.resource.data.passwordResetRequired == false &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'photoURL',
+          'email',
+          'passwordResetRequired',
+          'updatedAt'
+        ])
+      );
     }
 
     match /teams/{teamId} {
@@ -65,17 +94,37 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /outsource_portals/{portalId} {
+      allow read: if isAdmin() || isPartner() || isAssignedOutsourcePortalUser(resource.data);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || isPartner() || (
+        isAssignedOutsourcePortalUser(resource.data) &&
+        request.resource.data.assignedUserIds == resource.data.assignedUserIds &&
+        request.resource.data.projectId == resource.data.projectId &&
+        request.resource.data.serviceId == resource.data.serviceId
+      );
+    }
+
+    match /safe_codes/{codeId} {
+      allow read: if isAdmin() || (
+        isSignedIn() &&
+        userRole() == 'outsource' &&
+        codeId == 'active'
+      );
+      allow create, update, delete: if isAdmin();
+    }
+
     match /tasks/{taskId} {
       allow read: if isAdminOrPartner();
-      allow create: if isAdmin() || (isPartner() && isTaskAssignedToYoussef(request.resource.data));
+      allow create: if isAdmin() || (isPartner() && isTaskAssignedToCurrentUser(request.resource.data));
       allow update: if isAdmin() || (
         isPartner() &&
-        isTaskAssignedToYoussef(resource.data) &&
+        isTaskAssignedToCurrentUser(resource.data) &&
         request.resource.data.locked == resource.data.locked
       );
       allow delete: if isAdmin() || (
         isPartner() &&
-        isTaskAssignedToYoussef(resource.data) &&
+        isTaskAssignedToCurrentUser(resource.data) &&
         resource.data.locked != true
       );
     }
@@ -103,8 +152,13 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow create: if isAdminOrPartner();
+      allow read: if isSignedIn() && (
+        request.auth.uid == resource.data.userId ||
+        (isAdmin() && resource.data.adminFeed == true)
+      );
+      allow create: if isAdminOrPartner() || (
+        isSignedIn() && request.resource.data.actorId == request.auth.uid
+      );
       allow update, delete: if isAdmin();
     }
 

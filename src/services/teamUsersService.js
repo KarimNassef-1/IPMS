@@ -23,6 +23,7 @@ import {
 	firebaseReady,
 } from "./firebase";
 import { normalizeServiceCategory } from "../utils/serviceAccess";
+import { normalizePhoneNumber } from "../utils/helpers";
 
 const USERS = "users";
 const TEAMS = "teams";
@@ -140,16 +141,22 @@ export async function createManagedAuthUser(
 				name: String(profilePayload?.name || "").trim() || "User",
 				email: normalizedEmail,
 				role:
-					String(profilePayload?.role || "viewer")
+					String(profilePayload?.role || "outsource")
 						.trim()
-						.toLowerCase() || "viewer",
+						.toLowerCase() || "outsource",
 				photoURL: String(profilePayload?.photoURL || "").trim(),
 				title: String(profilePayload?.title || "").trim(),
+				phoneNumber: normalizePhoneNumber(profilePayload?.phoneNumber),
 				teamIds: normalizeArray(profilePayload?.teamIds),
+				websiteTracks: normalizeArray(profilePayload?.websiteTracks),
+				outsourceServices: normalizeServiceCategories(
+					profilePayload?.outsourceServices,
+				),
 				accountStatus:
 					String(profilePayload?.accountStatus || "active")
 						.trim()
 						.toLowerCase() || "active",
+				passwordResetRequired: true,
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString(),
 				source: "managed",
@@ -204,7 +211,10 @@ export async function upsertUser(userId, payload) {
 	const data = {
 		...payload,
 		email: normalizeEmail(payload?.email),
+		phoneNumber: normalizePhoneNumber(payload?.phoneNumber),
 		teamIds: normalizeArray(payload?.teamIds),
+		websiteTracks: normalizeArray(payload?.websiteTracks),
+		outsourceServices: normalizeServiceCategories(payload?.outsourceServices),
 		accountStatus:
 			String(payload?.accountStatus || "active")
 				.trim()
@@ -246,6 +256,21 @@ export async function setUserAccountStatus(userId, accountStatus) {
 		doc(firestore, USERS, id),
 		{
 			accountStatus: status,
+			updatedAt: new Date().toISOString(),
+		},
+		{ merge: true },
+	);
+}
+
+export async function setUserTeamMembership(userId, teamIds) {
+	const firestore = ensureFirebaseReady();
+	const id = String(userId || "").trim();
+	if (!id) throw new Error("User id is required.");
+
+	await setDoc(
+		doc(firestore, USERS, id),
+		{
+			teamIds: normalizeArray(teamIds),
 			updatedAt: new Date().toISOString(),
 		},
 		{ merge: true },

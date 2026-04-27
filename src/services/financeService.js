@@ -33,10 +33,17 @@ export async function recordIncome(payload) {
 	return distribution;
 }
 
-export async function getTransactions() {
+export async function getTransactions(filters = {}) {
 	const firestore = ensureFirebaseReady();
+	const constraints = [];
+	if (filters?.sinceDate) {
+		constraints.push(where("createdAt", ">=", String(filters.sinceDate)));
+	}
+	const targetQuery = constraints.length
+		? query(collection(firestore, TRANSACTIONS), ...constraints)
+		: collection(firestore, TRANSACTIONS);
 
-	const snapshot = await getDocs(collection(firestore, TRANSACTIONS));
+	const snapshot = await getDocs(targetQuery);
 	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
@@ -82,17 +89,19 @@ export async function addExpense(payload) {
 
 export async function getExpenses(filters = {}) {
 	const firestore = ensureFirebaseReady();
-
+	const constraints = [];
 	if (filters.category) {
-		const expensesQuery = query(
-			collection(firestore, EXPENSES),
-			where("category", "==", filters.category),
-		);
-		const snapshot = await getDocs(expensesQuery);
-		return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+		constraints.push(where("category", "==", filters.category));
+	}
+	if (filters.sinceDate) {
+		constraints.push(where("createdAt", ">=", String(filters.sinceDate)));
 	}
 
-	const snapshot = await getDocs(collection(firestore, EXPENSES));
+	const targetQuery = constraints.length
+		? query(collection(firestore, EXPENSES), ...constraints)
+		: collection(firestore, EXPENSES);
+
+	const snapshot = await getDocs(targetQuery);
 	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 

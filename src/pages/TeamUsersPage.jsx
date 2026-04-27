@@ -5,6 +5,7 @@ import {
   deleteTeam,
   restoreTeam,
   setUserAccountStatus,
+  setUserTeamMembership,
   setRolePermissions,
   subscribeRolePermissions,
   subscribeTeams,
@@ -20,17 +21,23 @@ import {
   SERVICE_CATEGORIES,
   WEBSITE_DEVELOPMENT_TRACKS,
 } from '../utils/constants'
+import {
+  buildManagedLoginEmailFromPhone,
+  generateManagedTemporaryPassword,
+  normalizePhoneNumber,
+} from '../utils/helpers'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../hooks/useAuth'
 
 const EMPTY_USER_FORM = {
   name: '',
-  email: '',
-  password: '',
-  role: 'viewer',
+  phoneNumber: '',
+  role: 'outsource',
   photoURL: '',
   title: '',
   teamIds: [],
+  websiteTracks: [],
+  outsourceServices: [],
 }
 
 const EMPTY_TEAM_FORM = {
@@ -48,6 +55,8 @@ const EMPTY_TEAM_MEMBER_DRAFT = {
   pictureUrl: '',
   linkedUserId: '',
 }
+
+const ROLE_ACCESS_MATRIX_ROLES = APP_ROLES
 
 function createTeamMemberId() {
   return `member_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -80,6 +89,11 @@ export default function TeamUsersPage() {
   const [editingDraftMemberId, setEditingDraftMemberId] = useState('')
   const userFormSectionRef = useRef(null)
   const teamFormSectionRef = useRef(null)
+  const [showRoleAccessMatrix, setShowRoleAccessMatrix] = useState(true)
+  const [showUsersSection, setShowUsersSection] = useState(true)
+  const [showTeamsSection, setShowTeamsSection] = useState(true)
+  const [generatedCredentials, setGeneratedCredentials] = useState(null)
+  const [copiedField, setCopiedField] = useState('')
   const [userSearchTerm, setUserSearchTerm] = useState('')
   const [teamSearchTerm, setTeamSearchTerm] = useState('')
   const [teamServiceFilter, setTeamServiceFilter] = useState('all')
@@ -156,6 +170,11 @@ export default function TeamUsersPage() {
     [teams],
   )
 
+  const outsourceCategoryOptions = useMemo(() => {
+    return Array.from(new Set([...SERVICE_CATEGORIES]))
+      .sort((a, b) => a.localeCompare(b))
+  }, [])
+
   const filteredUsers = useMemo(() => {
     const query = String(userSearchTerm || '').trim().toLowerCase()
     const source = Array.isArray(users) ? users : []
@@ -165,9 +184,10 @@ export default function TeamUsersPage() {
         if (!query) return true
         const haystack = [
           item.name,
-          item.email,
+          item.phoneNumber,
           item.role,
           item.title,
+          ...(Array.isArray(item.websiteTracks) ? item.websiteTracks : []),
           ...(Array.isArray(item.teamIds) ? item.teamIds.map((teamId) => teamNameById[teamId] || teamId) : []),
         ]
           .map((value) => String(value || '').toLowerCase())
@@ -239,6 +259,11 @@ export default function TeamUsersPage() {
     [teamForm.serviceCategories],
   )
 
+  const isUserWebsiteDevelopment = useMemo(
+    () => (userForm.outsourceServices || []).includes('Website Development'),
+    [userForm.outsourceServices],
+  )
+
   useEffect(() => {
     if (isWebsiteDevelopmentTeam) return
 
@@ -268,33 +293,63 @@ export default function TeamUsersPage() {
     setStatus('')
 
     try {
-      const normalizedEmail = String(userForm.email || '').trim().toLowerCase()
-      const safePassword = String(userForm.password || '')
+      const normalizedPhone = normalizePhoneNumber(userForm.phoneNumber)
 
-      if (!editingUserId) {
-        await createManagedAuthUser(normalizedEmail, safePassword, {
-          name: userForm.name,
-          email: normalizedEmail,
-          role: userForm.role,
-          photoURL: userForm.photoURL,
-          title: userForm.title,
-          teamIds: userForm.teamIds,
-          accountStatus: 'active',
-        })
-      } else {
-        const existingAccountStatus = String(userById[editingUserId]?.accountStatus || 'active').trim().toLowerCase()
-        await upsertUser(editingUserId, {
-          name: userForm.name,
-          email: normalizedEmail,
-          role: userForm.role,
-          photoURL: userForm.photoURL,
-          title: userForm.title,
-          teamIds: userForm.teamIds,
-          accountStatus: existingAccountStatus,
-        })
+      if (!normalizedPhone) {
+        throw new Error('Phone number is required.')
       }
 
-      setStatus(editingUserId ? 'User updated.' : 'User created.')
+      if (normalizedPhone.length < 8) {
+        throw new Error('Phone number must have at least 8 digits.')
+      }
+
+      if (!editingUserId) {
+        const generatedEmail = buildManagedLoginEmailFromPhone(normalizedPhone)
+        const generatedPassword = generateManagedTemporaryPassword({
+          fullName: userForm.name,
+          phoneNumber: normalizedPhone,
+          services: userForm.outsourceServices,
+        })
+
+        await createManagedAuthUser(generatedEmail, generatedPassword, {
+          name: userForm.name,
+          email: generatedEmail,
+          phoneNumber: normalizedPhone,
+          role: userForm.role,
+          photoURL: userForm.photoURL,
+          title: userForm.title,
+          teamIds: userForm.teamIds,
+          websiteTracks: userForm.websiteTracks,
+          outsourceServices: userForm.outsourceServices,
+          accountStatus: 'active',
+        })
+
+        setGeneratedCredentials({
+          fullName: userForm.name,
+          phoneNumber: normalizedPhone,
+          loginEmail: generatedEmail,
+          temporaryPassword: generatedPassword,
+        })
+        setStatus('User created.')
+      } else {
+        const existingAccountStatus = String(userById[editingUserId]?.accountStatus || 'active').trim().toLowerCase()
+        const stableEmail = String(userById[editingUserId]?.email || '').trim().toLowerCase() || buildManagedLoginEmailFromPhone(normalizedPhone)
+        await upsertUser(editingUserId, {
+          name: userForm.name,
+          email: stableEmail,
+          phoneNumber: normalizedPhone,
+          role: userForm.role,
+          photoURL: userForm.photoURL,
+          title: userForm.title,
+          teamIds: userForm.teamIds,
+          websiteTracks: userForm.websiteTracks,
+          outsourceServices: userForm.outsourceServices,
+          accountStatus: existingAccountStatus,
+        })
+
+        setStatus('User updated.')
+      }
+
       setEditingUserId('')
       setUserForm(EMPTY_USER_FORM)
     } catch (error) {
@@ -311,6 +366,9 @@ export default function TeamUsersPage() {
     setStatus('')
 
     try {
+      const existingTeam = editingTeamId
+        ? teams.find((team) => team.id === editingTeamId)
+        : null
       const normalizedServiceCategories = Array.isArray(teamForm.serviceCategories) && teamForm.serviceCategories.length
         ? teamForm.serviceCategories
         : [SERVICE_CATEGORIES[0]]
@@ -327,12 +385,47 @@ export default function TeamUsersPage() {
         }))
         .filter((member) => member.name)
 
-      await upsertTeam(editingTeamId, {
+      const previousLinkedUserIds = editingTeamId
+        ? Array.from(
+            new Set(
+              (Array.isArray(existingTeam?.memberProfiles)
+                ? existingTeam.memberProfiles
+                : []
+              )
+                .map((member) => String(member?.userId || '').trim())
+                .filter(Boolean),
+            ),
+          )
+        : []
+
+      const teamId = await upsertTeam(editingTeamId, {
         ...teamForm,
         serviceCategories: normalizedServiceCategories,
         memberProfiles: normalizedMembers,
         memberIds: normalizedMembers.map((member) => member.userId).filter(Boolean),
       })
+
+      const nextLinkedUserIds = Array.from(
+        new Set(normalizedMembers.map((member) => String(member.userId || '').trim()).filter(Boolean)),
+      )
+      const impactedUserIds = Array.from(new Set([...previousLinkedUserIds, ...nextLinkedUserIds]))
+
+      await Promise.all(
+        impactedUserIds.map(async (userId) => {
+          const user = userById[userId]
+          if (!user) return
+          const currentTeamIds = Array.isArray(user.teamIds) ? user.teamIds : []
+          const nextTeamIds = new Set(currentTeamIds)
+
+          if (nextLinkedUserIds.includes(userId)) {
+            nextTeamIds.add(teamId)
+          } else {
+            nextTeamIds.delete(teamId)
+          }
+
+          await setUserTeamMembership(userId, Array.from(nextTeamIds))
+        }),
+      )
 
       setStatus(editingTeamId ? 'Team updated.' : 'Team created.')
       setEditingTeamId('')
@@ -429,6 +522,21 @@ export default function TeamUsersPage() {
     }
   }
 
+  async function onUserPhotoFileChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const dataUrl = await fileToDataUrl(file)
+      setUserForm((current) => ({ ...current, photoURL: dataUrl }))
+      setStatus('User profile image selected.')
+    } catch (error) {
+      setStatus(error?.message || 'Unable to load selected profile image.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
   async function onDeleteUser(userId) {
     if (!window.confirm('Remove this user from system access?')) return
 
@@ -437,7 +545,7 @@ export default function TeamUsersPage() {
 
     try {
       await setUserAccountStatus(userId, 'removed')
-      toast.success(`Removed user: ${targetUser.name || targetUser.email || 'User'}`)
+      toast.success(`Removed user: ${targetUser.name || targetUser.phoneNumber || 'User'}`)
     } catch (error) {
       setStatus(error?.message || 'Failed to delete user.')
     }
@@ -458,9 +566,9 @@ export default function TeamUsersPage() {
     try {
       await setUserAccountStatus(userId, nextStatus)
       if (nextStatus === 'locked') {
-        toast.success(`Locked user: ${targetUser.name || targetUser.email || 'User'}`)
+        toast.success(`Locked user: ${targetUser.name || targetUser.phoneNumber || 'User'}`)
       } else {
-        toast.success(`Unlocked user: ${targetUser.name || targetUser.email || 'User'}`)
+        toast.success(`Unlocked user: ${targetUser.name || targetUser.phoneNumber || 'User'}`)
       }
     } catch (error) {
       setStatus(error?.message || 'Failed to update user lock status.')
@@ -513,6 +621,24 @@ export default function TeamUsersPage() {
     }
   }
 
+  async function copyToClipboard(value, fieldKey) {
+    try {
+      await navigator.clipboard.writeText(String(value || ''))
+      setCopiedField(fieldKey)
+      toast.success('Copied to clipboard.')
+      window.setTimeout(() => {
+        setCopiedField((current) => (current === fieldKey ? '' : current))
+      }, 1400)
+    } catch {
+      toast.error('Unable to copy. Please copy manually.')
+    }
+  }
+
+  function closeCredentialsPopup() {
+    setGeneratedCredentials(null)
+    setCopiedField('')
+  }
+
   return (
     <ModuleShell
       title="Team & Users"
@@ -529,7 +655,7 @@ export default function TeamUsersPage() {
         </div>
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Roles Configured</p>
-          <p className="mt-1 text-2xl font-black text-sky-700">{APP_ROLES.length}</p>
+          <p className="mt-1 text-2xl font-black text-sky-700">{ROLE_ACCESS_MATRIX_ROLES.length}</p>
         </div>
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Service Categories</p>
@@ -538,48 +664,96 @@ export default function TeamUsersPage() {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5">
-        <h4 className="font-bold text-slate-900">Role Access Matrix</h4>
+        <div className="inline-flex items-center gap-2">
+          <h4 className="font-bold text-slate-900">Role Access Matrix</h4>
+          <button
+            type="button"
+            onClick={() => setShowRoleAccessMatrix((current) => !current)}
+            className="group relative inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-full border border-slate-300/90 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-700 shadow-[0_8px_16px_-14px_rgba(15,23,42,0.8)] transition duration-200 hover:-translate-y-[1px] hover:border-slate-400 hover:shadow-[0_10px_18px_-14px_rgba(15,23,42,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 sm:h-7 sm:w-7"
+            title={showRoleAccessMatrix ? 'Hide role access matrix' : 'Show role access matrix'}
+            aria-label={showRoleAccessMatrix ? 'Hide role access matrix' : 'Show role access matrix'}
+            aria-pressed={showRoleAccessMatrix}
+          >
+            <span className="pointer-events-none absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.96),rgba(255,255,255,0)_58%)]" />
+            <span className="relative block h-3 w-3">
+              <span className="absolute left-0 top-1/2 h-[2px] w-3 -translate-y-1/2 rounded-full bg-slate-700 transition-colors duration-200 group-hover:bg-slate-900" />
+              <span
+                className={`absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 rounded-full bg-slate-700 transition-all duration-200 group-hover:bg-slate-900 ${
+                  showRoleAccessMatrix ? 'scale-y-0 opacity-0' : 'scale-y-100 opacity-100'
+                }`}
+              />
+            </span>
+          </button>
+        </div>
         <p className="mt-1 text-xs text-slate-500">Select the pages/modules each role can access.</p>
 
-        <div className="mt-4 space-y-3">
-          {APP_ROLES.map((role) => (
-            <div key={role} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold uppercase tracking-wider text-slate-800">{role}</p>
-                <button
-                  type="button"
-                  onClick={() => saveRoleAccess(role)}
-                  className="rounded-lg bg-[#8246f6] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#6f39e7]"
-                >
-                  Save {role}
-                </button>
+        <div
+          className={`grid transition-all duration-300 ease-out ${showRoleAccessMatrix ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
+        >
+          <div className="space-y-3 overflow-hidden">
+            {ROLE_ACCESS_MATRIX_ROLES.map((role) => (
+              <div key={role} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold uppercase tracking-wider text-slate-800">{role}</p>
+                  <button
+                    type="button"
+                    onClick={() => saveRoleAccess(role)}
+                    className="rounded-lg bg-[#8246f6] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#6f39e7]"
+                  >
+                    Save {role}
+                  </button>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {APP_PERMISSION_KEYS.map((permissionKey) => {
+                    const isChecked = (rolePermissionMap[role] || []).includes(permissionKey)
+                    return (
+                      <label key={`${role}-${permissionKey}`} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => togglePermission(role, permissionKey)}
+                        />
+                        {PERMISSION_LABELS[permissionKey] || permissionKey}
+                      </label>
+                    )
+                  })}
+                </div>
               </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {APP_PERMISSION_KEYS.map((permissionKey) => {
-                  const isChecked = (rolePermissionMap[role] || []).includes(permissionKey)
-                  return (
-                    <label key={`${role}-${permissionKey}`} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => togglePermission(role, permissionKey)}
-                      />
-                      {PERMISSION_LABELS[permissionKey] || permissionKey}
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-2">
         <article ref={userFormSectionRef} className="rounded-3xl border border-slate-200 bg-white p-5">
-          <h4 className="font-bold text-slate-900">Users</h4>
+          <div className="inline-flex items-center gap-2">
+            <h4 className="font-bold text-slate-900">Users</h4>
+            <button
+              type="button"
+              onClick={() => setShowUsersSection((current) => !current)}
+              className="group relative inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-full border border-slate-300/90 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-700 shadow-[0_8px_16px_-14px_rgba(15,23,42,0.8)] transition duration-200 hover:-translate-y-[1px] hover:border-slate-400 hover:shadow-[0_10px_18px_-14px_rgba(15,23,42,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 sm:h-7 sm:w-7"
+              title={showUsersSection ? 'Hide users section' : 'Show users section'}
+              aria-label={showUsersSection ? 'Hide users section' : 'Show users section'}
+              aria-pressed={showUsersSection}
+            >
+              <span className="pointer-events-none absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.96),rgba(255,255,255,0)_58%)]" />
+              <span className="relative block h-3 w-3">
+                <span className="absolute left-0 top-1/2 h-[2px] w-3 -translate-y-1/2 rounded-full bg-slate-700 transition-colors duration-200 group-hover:bg-slate-900" />
+                <span
+                  className={`absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 rounded-full bg-slate-700 transition-all duration-200 group-hover:bg-slate-900 ${
+                    showUsersSection ? 'scale-y-0 opacity-0' : 'scale-y-100 opacity-100'
+                  }`}
+                />
+              </span>
+            </button>
+          </div>
           <p className="mt-1 text-xs text-slate-500">Create user records, assign role, title, team membership, and profile picture.</p>
 
-          <form onSubmit={onSaveUser} className="mt-4 space-y-3">
+          <div
+            className={`grid transition-all duration-300 ease-out ${showUsersSection ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
+          >
+            <div className="overflow-hidden">
+          <form onSubmit={onSaveUser} className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <input
                 value={userForm.name}
@@ -589,25 +763,14 @@ export default function TeamUsersPage() {
                 required
               />
               <input
-                value={userForm.email}
-                onChange={(event) => setUserForm((current) => ({ ...current, email: event.target.value }))}
-                placeholder="Email"
+                value={userForm.phoneNumber}
+                onChange={(event) => setUserForm((current) => ({ ...current, phoneNumber: event.target.value }))}
+                placeholder="Phone number"
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 required
-                disabled={Boolean(editingUserId)}
+                inputMode="tel"
               />
             </div>
-
-            <input
-              type="password"
-              value={userForm.password}
-              onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))}
-              placeholder={editingUserId ? 'Password change is not supported here' : 'Temporary password (min 6 chars)'}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              required={!editingUserId}
-              minLength={6}
-              disabled={Boolean(editingUserId)}
-            />
 
             <div className="grid gap-3 sm:grid-cols-2">
               <select
@@ -627,12 +790,95 @@ export default function TeamUsersPage() {
               />
             </div>
 
-            <input
-              value={userForm.photoURL}
-              onChange={(event) => setUserForm((current) => ({ ...current, photoURL: event.target.value }))}
-              placeholder="Profile picture URL"
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Temporary password is auto-generated from name initials, phone, and service initials.
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+              <p className="mb-2 text-xs font-semibold text-slate-600">Services provided</p>
+              <div className="grid gap-1 sm:grid-cols-2">
+                {outsourceCategoryOptions.map((category) => {
+                  const checked = userForm.outsourceServices.includes(category)
+                  return (
+                    <label key={`user-outsource-service-${category}`} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setUserForm((current) => {
+                            const next = new Set(current.outsourceServices || [])
+                            if (next.has(category)) next.delete(category)
+                            else next.add(category)
+                            const nextServices = Array.from(next)
+                            return {
+                              ...current,
+                              outsourceServices: nextServices,
+                              websiteTracks: nextServices.includes('Website Development')
+                                ? current.websiteTracks
+                                : [],
+                            }
+                          })
+                        }}
+                      />
+                      {category}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            {isUserWebsiteDevelopment ? (
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-2">
+                <p className="text-xs font-semibold text-indigo-700">Website Development Tracks (multi-select)</p>
+                <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                  {WEBSITE_DEVELOPMENT_TRACKS.map((track) => {
+                    const checked = (userForm.websiteTracks || []).includes(track)
+                    return (
+                      <label key={`user-track-${track}`} className="flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setUserForm((current) => {
+                              const next = new Set(current.websiteTracks || [])
+                              if (next.has(track)) next.delete(track)
+                              else next.add(track)
+                              return { ...current, websiteTracks: Array.from(next) }
+                            })
+                          }}
+                        />
+                        {track}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={onUserPhotoFileChange}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {userForm.photoURL ? (
+                  <>
+                    <span>Image selected</span>
+                    <button
+                      type="button"
+                      onClick={() => setUserForm((current) => ({ ...current, photoURL: '' }))}
+                      className="rounded bg-rose-100 px-2 py-1 font-semibold text-rose-700 hover:bg-rose-200"
+                    >
+                      Clear
+                    </button>
+                  </>
+                ) : (
+                  <span>No image selected</span>
+                )}
+              </div>
+            </div>
 
             <label className="block text-xs font-semibold text-slate-600">Accessible Teams</label>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -688,7 +934,7 @@ export default function TeamUsersPage() {
             <input
               value={userSearchTerm}
               onChange={(event) => setUserSearchTerm(event.target.value)}
-              placeholder="Search users by name, email, role, title, or team"
+              placeholder="Search users by name, phone, role, title, or team"
               className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             />
 
@@ -713,7 +959,10 @@ export default function TeamUsersPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="rounded-full bg-[#f0e9ff] px-2 py-0.5 text-[11px] font-semibold text-[#6f39e7]">{item.role || 'viewer'}</span>
+                      <span className="rounded-full bg-[#f0e9ff] px-2 py-0.5 text-[11px] font-semibold text-[#6f39e7]">{item.role || 'outsource'}</span>
+                      {String(item.role || '').toLowerCase() === 'outsource' ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">outsource</span>
+                      ) : null}
                       {String(item.accountStatus || 'active').toLowerCase() !== 'active' ? (
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${String(item.accountStatus || 'active').toLowerCase() === 'locked' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
                           {String(item.accountStatus || 'active').toLowerCase()}
@@ -723,6 +972,21 @@ export default function TeamUsersPage() {
                   </div>
 
                   <div className="mt-2 flex flex-wrap gap-1.5">
+                    {item.phoneNumber ? (
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                        Phone: {item.phoneNumber}
+                      </span>
+                    ) : null}
+                    {(item.outsourceServices || []).map((service) => (
+                      <span key={`user-outsource-service-${item.id}-${service}`} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                        {service}
+                      </span>
+                    ))}
+                    {(item.websiteTracks || []).map((track) => (
+                      <span key={`user-track-${item.id}-${track}`} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                        {track}
+                      </span>
+                    ))}
                     {(item.teamIds || []).map((teamId) => (
                       <span key={`user-team-${item.id}-${teamId}`} className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
                         {teamNameById[teamId] || teamId}
@@ -738,12 +1002,13 @@ export default function TeamUsersPage() {
                         setEditingUserId(item.id)
                         setUserForm({
                           name: item.name || '',
-                          email: item.email || '',
-                          password: '',
-                          role: item.role || 'viewer',
+                          phoneNumber: item.phoneNumber || '',
+                          role: item.role || 'outsource',
                           photoURL: item.photoURL || '',
                           title: item.title || '',
                           teamIds: Array.isArray(item.teamIds) ? item.teamIds : [],
+                          websiteTracks: Array.isArray(item.websiteTracks) ? item.websiteTracks : [],
+                          outsourceServices: Array.isArray(item.outsourceServices) ? item.outsourceServices : [],
                         })
                         requestAnimationFrame(() => {
                           userFormSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -804,13 +1069,39 @@ export default function TeamUsersPage() {
               {loading && !users.length ? <p className="text-sm text-slate-500">Loading users...</p> : null}
             </div>
           </div>
+            </div>
+          </div>
         </article>
 
         <article ref={teamFormSectionRef} className="rounded-3xl border border-slate-200 bg-white p-5">
-          <h4 className="font-bold text-slate-900">Teams</h4>
+          <div className="inline-flex items-center gap-2">
+            <h4 className="font-bold text-slate-900">Teams</h4>
+            <button
+              type="button"
+              onClick={() => setShowTeamsSection((current) => !current)}
+              className="group relative inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-full border border-slate-300/90 bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-700 shadow-[0_8px_16px_-14px_rgba(15,23,42,0.8)] transition duration-200 hover:-translate-y-[1px] hover:border-slate-400 hover:shadow-[0_10px_18px_-14px_rgba(15,23,42,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 sm:h-7 sm:w-7"
+              title={showTeamsSection ? 'Hide teams section' : 'Show teams section'}
+              aria-label={showTeamsSection ? 'Hide teams section' : 'Show teams section'}
+              aria-pressed={showTeamsSection}
+            >
+              <span className="pointer-events-none absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.96),rgba(255,255,255,0)_58%)]" />
+              <span className="relative block h-3 w-3">
+                <span className="absolute left-0 top-1/2 h-[2px] w-3 -translate-y-1/2 rounded-full bg-slate-700 transition-colors duration-200 group-hover:bg-slate-900" />
+                <span
+                  className={`absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 rounded-full bg-slate-700 transition-all duration-200 group-hover:bg-slate-900 ${
+                    showTeamsSection ? 'scale-y-0 opacity-0' : 'scale-y-100 opacity-100'
+                  }`}
+                />
+              </span>
+            </button>
+          </div>
           <p className="mt-1 text-xs text-slate-500">Create teams with responsible services, members, and access mapping.</p>
 
-          <form onSubmit={onSaveTeam} className="mt-4 space-y-3">
+          <div
+            className={`grid transition-all duration-300 ease-out ${showTeamsSection ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
+          >
+            <div className="overflow-hidden">
+          <form onSubmit={onSaveTeam} className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-1">
               <input
                 value={teamForm.name}
@@ -936,6 +1227,9 @@ export default function TeamUsersPage() {
                       name: linkedUser ? (linkedUser.name || current.name) : current.name,
                       pictureUrl: linkedUser ? (linkedUser.photoURL || current.pictureUrl) : current.pictureUrl,
                       technicalRole: linkedUser ? (linkedUser.title || current.technicalRole) : current.technicalRole,
+                      websiteTracks: linkedUser && Array.isArray(linkedUser.websiteTracks)
+                        ? linkedUser.websiteTracks
+                        : current.websiteTracks,
                     }))
                   }}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
@@ -1249,8 +1543,99 @@ export default function TeamUsersPage() {
             {!loading && teams.length > 0 && !filteredTeams.length ? <p className="mt-3 text-sm text-slate-500">No teams match the current filters.</p> : null}
             {loading && !teams.length ? <p className="text-sm text-slate-500">Loading teams...</p> : null}
           </div>
+            </div>
+          </div>
         </article>
       </section>
+
+      {generatedCredentials ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-lg rounded-3xl border border-emerald-100 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Credentials Ready</p>
+                <h4 className="mt-1 text-lg font-black text-slate-900">Successfully Generated Login Credentials</h4>
+                <p className="mt-1 text-sm text-slate-600">
+                  Share these credentials with {generatedCredentials.fullName || 'the user'}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCredentialsPopup}
+                className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">Login Email (Use This to Sign In)</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="break-all text-sm font-semibold text-slate-900">{generatedCredentials.loginEmail}</p>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(generatedCredentials.loginEmail, 'email')}
+                    className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                  >
+                    {copiedField === 'email' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">Temporary Password</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="break-all text-sm font-semibold text-slate-900">{generatedCredentials.temporaryPassword}</p>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(generatedCredentials.temporaryPassword, 'password')}
+                    className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                  >
+                    {copiedField === 'password' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">Reference Phone Number</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="break-all text-sm font-medium text-slate-700">{generatedCredentials.phoneNumber}</p>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(generatedCredentials.phoneNumber, 'phone')}
+                    className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                  >
+                    {copiedField === 'phone' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  copyToClipboard(
+                    `Email: ${generatedCredentials.loginEmail}\nPassword: ${generatedCredentials.temporaryPassword}`,
+                    'all',
+                  )
+                }
+                className="rounded-xl bg-[#8246f6] px-3 py-2 text-xs font-semibold text-white hover:bg-[#6f39e7]"
+              >
+                {copiedField === 'all' ? 'Copied All' : 'Copy Login Credentials'}
+              </button>
+              <button
+                type="button"
+                onClick={closeCredentialsPopup}
+                className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </ModuleShell>
   )
 }
