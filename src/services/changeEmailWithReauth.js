@@ -3,6 +3,7 @@ import {
 	EmailAuthProvider,
 	reauthenticateWithCredential,
 	updateEmail,
+	verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 
@@ -21,9 +22,22 @@ export async function changeUserEmailWithReauth(currentPassword, newEmail) {
 
 	const credential = EmailAuthProvider.credential(user.email, currentPassword);
 	await reauthenticateWithCredential(user, credential);
-	await updateEmail(user, nextEmail);
 
-	if (firestore && user.uid) {
+	let verificationRequired = false;
+
+	try {
+		await updateEmail(user, nextEmail);
+	} catch (error) {
+		const code = String(error?.code || "").toLowerCase();
+		if (code !== "auth/operation-not-allowed") {
+			throw error;
+		}
+
+		await verifyBeforeUpdateEmail(user, nextEmail);
+		verificationRequired = true;
+	}
+
+	if (firestore && user.uid && !verificationRequired) {
 		await setDoc(
 			doc(firestore, "users", user.uid),
 			{
@@ -34,4 +48,9 @@ export async function changeUserEmailWithReauth(currentPassword, newEmail) {
 			{ merge: true },
 		);
 	}
+
+	return {
+		verificationRequired,
+		email: nextEmail,
+	};
 }

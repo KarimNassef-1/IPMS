@@ -110,7 +110,7 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export default function AnalyticsPage() {
-	const { isAdmin, isPartner, serviceCategories } = useAuth();
+	const { isAdmin, isPartner, serviceCategories, loading: authLoading, user } = useAuth();
 	const hasFullFinancialAccess = isAdmin || isPartner;
 	const allowedCategorySet = useMemo(
 		() => createAllowedServiceCategorySet(serviceCategories),
@@ -125,6 +125,8 @@ export default function AnalyticsPage() {
 	const [error, setError] = useState("");
 
 	useEffect(() => {
+		if (authLoading || !user?.uid) return undefined;
+
 		let unsubscribers = [];
 		const categoryList = Array.from(allowedCategorySet);
 
@@ -203,7 +205,7 @@ export default function AnalyticsPage() {
 				if (typeof unsubscribe === "function") unsubscribe();
 			});
 		};
-	}, [allowedCategorySet, hasFullFinancialAccess]);
+	}, [allowedCategorySet, hasFullFinancialAccess, authLoading, user?.uid]);
 
 	const analytics = useMemo(() => {
 		const paidServices = services.filter((service) => service.chargeType !== "free");

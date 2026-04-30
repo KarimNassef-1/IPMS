@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import { buildManagedLoginEmailFromPhone, normalizePhoneNumber } from '../../utils/helpers'
 
 export default function LoginForm() {
-  const navigate = useNavigate()
   const { login } = useAuth()
   const toast = useToast()
 
@@ -29,7 +27,8 @@ export default function LoginForm() {
         : buildManagedLoginEmailFromPhone(normalizePhoneNumber(rawIdentifier))
 
       await login(normalizedIdentifier, formData.password)
-      navigate('/')
+      // Full reload avoids post-login hydration races with protected data queries.
+      window.location.assign('/')
     } catch (loginError) {
       let message = ''
       if (loginError?.code === 'auth/invalid-credential') {

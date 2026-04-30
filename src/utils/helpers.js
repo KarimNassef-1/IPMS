@@ -70,6 +70,31 @@ export function buildManagedLoginEmailFromPhone(phoneNumber) {
 	return `u${digits}@ipms.local`;
 }
 
+function sanitizeEmailToken(value) {
+	return String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, "");
+}
+
+export function buildManagedLoginEmailFromName(fullName, atDate = new Date()) {
+	const parts = String(fullName || "")
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+
+	const firstName = sanitizeEmailToken(parts[0] || "user");
+	const secondName = sanitizeEmailToken(parts[1] || "member");
+	const base = `${firstName}${secondName}` || "usermember";
+
+	const date = atDate instanceof Date ? atDate : new Date();
+	const minuteToken = Number.isNaN(date.getTime())
+		? "00"
+		: String(date.getMinutes()).padStart(2, "0");
+
+	return `${base}${minuteToken}@infinitepixelstech.com`;
+}
+
 function createSecureRandomString(length, alphabet) {
 	const normalizedLength = Math.max(Number(length) || 0, 0);
 	if (!normalizedLength) return "";

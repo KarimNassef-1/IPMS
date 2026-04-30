@@ -59,7 +59,19 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(firebaseReady)
 
   useEffect(() => {
-    if (!firebaseReady || !firestore) return undefined
+    if (!firebaseReady || !firestore) {
+      setRolePermissions(DEFAULT_ROLE_PERMISSIONS)
+      setRolePermissionsReady(true)
+      return undefined
+    }
+
+    if (!user) {
+      setRolePermissions(DEFAULT_ROLE_PERMISSIONS)
+      setRolePermissionsReady(true)
+      return undefined
+    }
+
+    setRolePermissionsReady(false)
 
     const unsubscribePermissions = subscribeRolePermissions(
       (map) => {
@@ -73,7 +85,7 @@ export function AuthProvider({ children }) {
     )
 
     return () => unsubscribePermissions()
-  }, [])
+  }, [user])
 
   useEffect(() => {
     if (!user || !auth) return undefined
@@ -115,7 +127,15 @@ export function AuthProvider({ children }) {
   }, [user])
 
   useEffect(() => {
-    if (!firebaseReady || !firestore) return undefined
+    if (!firebaseReady || !firestore) {
+      setTeams([])
+      return undefined
+    }
+
+    if (!user) {
+      setTeams([])
+      return undefined
+    }
 
     const unsubscribeTeams = subscribeTeams(
       (items) => {
@@ -127,7 +147,7 @@ export function AuthProvider({ children }) {
     )
 
     return () => unsubscribeTeams()
-  }, [])
+  }, [user])
 
   useEffect(() => {
     if (!firebaseReady || !auth || !firestore) {
@@ -149,6 +169,9 @@ export function AuthProvider({ children }) {
           setLoading(false)
           return
         }
+
+        // Ensure auth token is available before protected Firestore reads run.
+        await firebaseUser.getIdToken()
 
         setUser(firebaseUser)
 
@@ -208,12 +231,22 @@ export function AuthProvider({ children }) {
 
   async function login(email, password) {
     const normalizedEmail = String(email).trim().toLowerCase()
+    setLoading(true)
 
     if (!firebaseReady || !auth) {
+      setLoading(false)
       throw new Error(firebaseError || 'Firebase is not initialized. Authentication is unavailable.')
     }
 
-    const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
+    let credential
+
+    try {
+      credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
+      await credential.user.getIdToken(true)
+    } catch (error) {
+      setLoading(false)
+      throw error
+    }
 
     const userDocRef = doc(firestore, 'users', credential?.user?.uid || '')
     const userSnapshot = credential?.user?.uid ? await getDoc(userDocRef) : null

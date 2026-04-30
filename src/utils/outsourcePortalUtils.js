@@ -188,6 +188,24 @@ export function getAssignedUserNames(portal) {
 	return fromLegacy ? [fromLegacy] : [];
 }
 
+export function getAssignedUserEmails(portal) {
+	const fromArray = Array.isArray(portal?.assignedUserEmails)
+		? portal.assignedUserEmails
+				.map((item) =>
+					String(item || "")
+						.trim()
+						.toLowerCase(),
+				)
+				.filter(Boolean)
+		: [];
+	if (fromArray.length) return [...new Set(fromArray)];
+
+	const fromLegacy = String(portal?.assignedUserEmail || "")
+		.trim()
+		.toLowerCase();
+	return fromLegacy ? [fromLegacy] : [];
+}
+
 export function buildPortalPayload(portal, overrides = {}) {
 	const nextPortal = {
 		...portal,
@@ -195,15 +213,21 @@ export function buildPortalPayload(portal, overrides = {}) {
 	};
 	const assignedUserIds = getAssignedUserIds(nextPortal);
 	const assignedUserNamesRaw = getAssignedUserNames(nextPortal);
+	const assignedUserEmailsRaw = getAssignedUserEmails(nextPortal);
 	const assignedUserNames = assignedUserIds.map(
 		(_, index) => assignedUserNamesRaw[index] || "Outsource User",
+	);
+	const assignedUserEmails = assignedUserIds.map(
+		(_, index) => assignedUserEmailsRaw[index] || "",
 	);
 
 	return {
 		assignedUserId: assignedUserIds[0] || "",
 		assignedUserName: assignedUserNames[0] || "",
+		assignedUserEmail: assignedUserEmails[0] || "",
 		assignedUserIds,
 		assignedUserNames,
+		assignedUserEmails,
 		projectId: String(overrides.projectId ?? portal.projectId ?? "").trim(),
 		projectName: String(
 			overrides.projectName ?? portal.projectName ?? "",

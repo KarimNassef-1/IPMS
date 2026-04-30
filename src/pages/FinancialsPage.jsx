@@ -32,7 +32,7 @@ const DISTRIBUTION_LABELS = {
 }
 
 export default function FinancialsPage() {
-  const { isAdmin, isPartner, serviceCategories } = useAuth()
+  const { isAdmin, isPartner, serviceCategories, loading: authLoading, user } = useAuth()
   const hasFullFinancialAccess = isAdmin || isPartner
   const allowedCategorySet = useMemo(
     () => createAllowedServiceCategorySet(serviceCategories),
@@ -71,8 +71,9 @@ export default function FinancialsPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !user?.uid) return
     loadData()
-  }, [hasFullFinancialAccess, allowedCategorySet])
+  }, [hasFullFinancialAccess, allowedCategorySet, authLoading, user?.uid])
 
   const projectNameById = useMemo(() => {
     return projects.reduce((acc, project) => {

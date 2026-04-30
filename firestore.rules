@@ -9,8 +9,15 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userDocExists() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return userDocExists()
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : '';
     }
 
     function isAdmin() {
@@ -21,6 +28,10 @@ service cloud.firestore {
       return isSignedIn() && userRole() == 'partner';
     }
 
+    function isOutsource() {
+      return isSignedIn() && userRole() == 'outsource';
+    }
+
     function isAdminOrPartner() {
       return isAdmin() || isPartner();
     }
@@ -29,10 +40,11 @@ service cloud.firestore {
       return values is list && request.auth.uid in values;
     }
 
+    // Supports both legacy single assignee and new multi-assignee array.
     function isAssignedOutsourcePortalUser(data) {
       return isSignedIn() && (
-        containsUid(data.assignedUserIds) ||
-        data.assignedUserId == request.auth.uid
+        data.assignedUserId == request.auth.uid ||
+        containsUid(data.assignedUserIds)
       );
     }
 
@@ -53,7 +65,7 @@ service cloud.firestore {
       // Only admin can delete users docs.
       allow delete: if isAdmin();
 
-      // Role changes must be admin-controlled only.
+      // Role/account/team changes must be admin-controlled only.
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.role == resource.data.role &&
@@ -95,10 +107,15 @@ service cloud.firestore {
     }
 
     match /outsource_portals/{portalId} {
-      allow read: if isAdmin() || isPartner() || isAssignedOutsourcePortalUser(resource.data);
+      allow read: if isAdmin() || isPartner() || isOutsource();
       allow create, delete: if isAdmin();
+
+      // Assigned outsource users can update progress/task content only.
+      // Assignment and project/service linkage remain immutable for non-supervisors.
       allow update: if isAdmin() || isPartner() || (
         isAssignedOutsourcePortalUser(resource.data) &&
+        isAssignedOutsourcePortalUser(request.resource.data) &&
+        request.resource.data.assignedUserId == resource.data.assignedUserId &&
         request.resource.data.assignedUserIds == resource.data.assignedUserIds &&
         request.resource.data.projectId == resource.data.projectId &&
         request.resource.data.serviceId == resource.data.serviceId

@@ -89,6 +89,7 @@ export default function OutsourceDashboardPage() {
     const unsubscribe = subscribeOutsourcePortalsForUser(
       user.uid,
       (items) => {
+        setError('')
         setPortals(Array.isArray(items) ? items : [])
         setLoading(false)
       },
@@ -96,6 +97,7 @@ export default function OutsourceDashboardPage() {
         setError(streamError?.message || 'Unable to load your outsource dashboard.')
         setLoading(false)
       },
+      { email: user?.email },
     )
 
     return () => unsubscribe()

@@ -24,7 +24,7 @@ function todayKey() {
 }
 
 export default function TasksPage() {
-  const { user, role, isAdmin, hasAccess, profile } = useAuth()
+  const { user, role, isAdmin, hasAccess, profile, loading: authLoading } = useAuth()
   const toast = useToast()
   const [tasks, setTasks] = useState([])
   const [allDailyTasks, setAllDailyTasks] = useState([])
@@ -56,10 +56,11 @@ export default function TasksPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !user?.uid) return
     loadTasks()
     loadDailyTasks()
     loadUsers()
-  }, [])
+  }, [authLoading, user?.uid])
 
   useEffect(() => {
     if (!statusMessage) return

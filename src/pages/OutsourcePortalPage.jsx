@@ -75,6 +75,7 @@ export default function OutsourcePortalPage() {
             toast.error(error?.message || 'Failed to load your assigned outsource work.')
             setLoading(false)
           },
+          { email: user?.email },
         )
 
     return () => unsubscribe()

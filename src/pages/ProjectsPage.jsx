@@ -176,7 +176,7 @@ function serviceToForm(service) {
 }
 
 export default function ProjectsPage() {
-  const { user, isAdmin, isPartner, serviceCategories } = useAuth()
+  const { user, isAdmin, isPartner, serviceCategories, loading: authLoading } = useAuth()
   const hasFullFinancialAccess = isAdmin || isPartner
   const toast = useToast()
   const allowedCategorySet = useMemo(
@@ -275,8 +275,9 @@ export default function ProjectsPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !user?.uid) return
     loadData()
-  }, [hasFullFinancialAccess, allowedCategorySet])
+  }, [hasFullFinancialAccess, allowedCategorySet, authLoading, user?.uid])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -905,6 +906,10 @@ export default function ProjectsPage() {
       : payload.assignedUserName
         ? [payload.assignedUserName]
         : []
+    const assignedUserEmails = assignedUserIds.map((id) => {
+      const matchedUser = outsourceUsers.find((item) => item.id === id)
+      return String(matchedUser?.email || '').trim().toLowerCase()
+    })
 
     if (payload.deliveryType !== 'outsource' || assignedUserIds.length === 0) {
       await deleteOutsourcePortalsByService(serviceId)
@@ -914,8 +919,10 @@ export default function ProjectsPage() {
     await upsertOutsourcePortalByService({
       assignedUserId: assignedUserIds[0] || '',
       assignedUserName: assignedUserNames[0] || '',
+      assignedUserEmail: assignedUserEmails[0] || '',
       assignedUserIds,
       assignedUserNames,
+      assignedUserEmails,
       projectId: payload.projectId,
       projectName,
       serviceId,

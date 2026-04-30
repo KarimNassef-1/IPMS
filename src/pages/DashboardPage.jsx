@@ -35,7 +35,7 @@ function toDateOrNull(rawValue) {
 }
 
 export default function DashboardPage() {
-  const { isAdmin, isPartner, serviceCategories } = useAuth()
+  const { isAdmin, isPartner, serviceCategories, loading: authLoading, user } = useAuth()
   const hasFullFinancialAccess = isAdmin || isPartner
   const allowedCategorySet = useMemo(
     () => createAllowedServiceCategorySet(serviceCategories),
@@ -51,6 +51,8 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState('')
 
   useEffect(() => {
+    if (authLoading || !user?.uid) return undefined
+
     let unsubscribers = []
     const categoryList = Array.from(allowedCategorySet)
 
@@ -138,7 +140,7 @@ export default function DashboardPage() {
         if (typeof unsubscribe === 'function') unsubscribe()
       })
     }
-  }, [allowedCategorySet, hasFullFinancialAccess])
+  }, [allowedCategorySet, hasFullFinancialAccess, authLoading, user?.uid])
 
   const dashboardData = useMemo(() => {
     const projectNameById = projects.reduce((acc, project) => {

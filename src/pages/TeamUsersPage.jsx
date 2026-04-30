@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import ModuleShell from '../components/layout/ModuleShell'
 import {
   createManagedAuthUser,
+  deleteUser,
   deleteTeam,
   restoreTeam,
   setUserAccountStatus,
@@ -22,6 +23,7 @@ import {
   WEBSITE_DEVELOPMENT_TRACKS,
 } from '../utils/constants'
 import {
+  buildManagedLoginEmailFromName,
   buildManagedLoginEmailFromPhone,
   generateManagedTemporaryPassword,
   normalizePhoneNumber,
@@ -304,7 +306,7 @@ export default function TeamUsersPage() {
       }
 
       if (!editingUserId) {
-        const generatedEmail = buildManagedLoginEmailFromPhone(normalizedPhone)
+        const generatedEmail = buildManagedLoginEmailFromName(userForm.name)
         const generatedPassword = generateManagedTemporaryPassword({
           fullName: userForm.name,
           phoneNumber: normalizedPhone,
@@ -333,7 +335,10 @@ export default function TeamUsersPage() {
         setStatus('User created.')
       } else {
         const existingAccountStatus = String(userById[editingUserId]?.accountStatus || 'active').trim().toLowerCase()
-        const stableEmail = String(userById[editingUserId]?.email || '').trim().toLowerCase() || buildManagedLoginEmailFromPhone(normalizedPhone)
+        const stableEmail =
+          String(userById[editingUserId]?.email || '').trim().toLowerCase() ||
+          buildManagedLoginEmailFromName(userForm.name) ||
+          buildManagedLoginEmailFromPhone(normalizedPhone)
         await upsertUser(editingUserId, {
           name: userForm.name,
           email: stableEmail,
@@ -548,6 +553,50 @@ export default function TeamUsersPage() {
       toast.success(`Removed user: ${targetUser.name || targetUser.phoneNumber || 'User'}`)
     } catch (error) {
       setStatus(error?.message || 'Failed to delete user.')
+    }
+  }
+
+  async function onClearUserFromSystem(userId) {
+    if (!window.confirm('Permanently clear this user from the system? This cannot be undone.')) return
+
+    const targetUser = users.find((item) => item.id === userId)
+    if (!targetUser) return
+
+    try {
+      const impactedTeams = teams.filter((team) => {
+        const memberIds = Array.isArray(team.memberIds) ? team.memberIds : []
+        const memberProfiles = Array.isArray(team.memberProfiles) ? team.memberProfiles : []
+        const linkedInProfiles = memberProfiles.some((member) => String(member?.userId || '').trim() === userId)
+        return memberIds.includes(userId) || linkedInProfiles
+      })
+
+      await Promise.all(
+        impactedTeams.map((team) => {
+          const nextMemberProfiles = (Array.isArray(team.memberProfiles) ? team.memberProfiles : []).filter(
+            (member) => String(member?.userId || '').trim() !== userId,
+          )
+          const nextMemberIds = (Array.isArray(team.memberIds) ? team.memberIds : []).filter(
+            (memberId) => memberId !== userId,
+          )
+
+          return upsertTeam(team.id, {
+            ...team,
+            memberProfiles: nextMemberProfiles,
+            memberIds: nextMemberIds,
+          })
+        }),
+      )
+
+      await deleteUser(userId)
+
+      if (editingUserId === userId) {
+        setEditingUserId('')
+        setUserForm(EMPTY_USER_FORM)
+      }
+
+      toast.success(`Cleared user: ${targetUser.name || targetUser.phoneNumber || 'User'}`)
+    } catch (error) {
+      setStatus(error?.message || 'Failed to clear user from system.')
     }
   }
 
@@ -1059,6 +1108,16 @@ export default function TeamUsersPage() {
                             <path d="M10 11v5" />
                             <path d="M14 11v5" />
                           </svg>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onClearUserFromSystem(item.id)}
+                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                          title="Clear user from system"
+                          aria-label="Clear user from system"
+                        >
+                          Clear
                         </button>
                       </>
                     ) : null}

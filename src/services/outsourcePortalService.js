@@ -27,8 +27,12 @@ function safeTextList(values) {
 function normalizeAssignedUsers(payload) {
 	const legacyId = safeText(payload?.assignedUserId);
 	const legacyName = safeText(payload?.assignedUserName);
+	const legacyEmail = safeText(payload?.assignedUserEmail).toLowerCase();
 	const providedIds = safeTextList(payload?.assignedUserIds);
 	const providedNames = safeTextList(payload?.assignedUserNames);
+	const providedEmails = safeTextList(payload?.assignedUserEmails).map(
+		(email) => email.toLowerCase(),
+	);
 
 	const assignedUserIds = [
 		...new Set(providedIds.length ? providedIds : legacyId ? [legacyId] : []),
@@ -39,12 +43,20 @@ function normalizeAssignedUsers(payload) {
 			index === 0 ? legacyName || "Outsource User" : "Outsource User",
 		),
 	);
+	const assignedUserEmails = assignedUserIds.map((_, index) =>
+		safeText(
+			providedEmails[index],
+			index === 0 ? legacyEmail || "" : "",
+		).toLowerCase(),
+	);
 
 	return {
 		assignedUserIds,
 		assignedUserNames,
+		assignedUserEmails,
 		assignedUserId: assignedUserIds[0] || "",
 		assignedUserName: assignedUserNames[0] || "",
+		assignedUserEmail: assignedUserEmails[0] || "",
 	};
 }
 
@@ -113,6 +125,24 @@ function normalizePortalPayload(payload) {
 	};
 }
 
+function mapSnapshotDocs(snapshot) {
+	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+function mergePortalsById(...portalLists) {
+	const merged = new Map();
+	portalLists.forEach((list) => {
+		(list || []).forEach((portal) => {
+			if (portal?.id) merged.set(portal.id, portal);
+		});
+	});
+	return Array.from(merged.values());
+}
+
+function isPermissionDenied(error) {
+	return String(error?.code || "").toLowerCase() === "permission-denied";
+}
+
 export async function createOutsourcePortal(payload) {
 	assertRequiredFields(payload, ["projectId", "serviceId"]);
 	ensureAssignedUsers(payload);
@@ -144,26 +174,114 @@ export async function deleteOutsourcePortal(portalId) {
 	await deleteDoc(doc(firestore, OUTSOURCE_PORTALS, portalId));
 }
 
-export function subscribeOutsourcePortalsForUser(userId, onData, onError) {
+export function subscribeOutsourcePortalsForUser(
+	userId,
+	onData,
+	onError,
+	options = {},
+) {
 	const firestore = ensureFirebaseReady();
 	const normalizedUserId = String(userId || "").trim();
-	const scopedQuery = query(
+	const normalizedEmail = String(options?.email || "")
+		.trim()
+		.toLowerCase();
+	if (!normalizedUserId) {
+		onData([]);
+		return () => {};
+	}
+
+	const arrayScopedQuery = query(
 		collection(firestore, OUTSOURCE_PORTALS),
 		where("assignedUserIds", "array-contains", normalizedUserId),
 	);
-
-	return onSnapshot(
-		scopedQuery,
-		(snapshot) => {
-			onData(
-				snapshot.docs.map((item) => ({
-					id: item.id,
-					...item.data(),
-				})),
-			);
-		},
-		onError,
+	const legacyScopedQuery = query(
+		collection(firestore, OUTSOURCE_PORTALS),
+		where("assignedUserId", "==", normalizedUserId),
 	);
+	const emailScopedQuery = normalizedEmail
+		? query(
+				collection(firestore, OUTSOURCE_PORTALS),
+				where("assignedUserEmails", "array-contains", normalizedEmail),
+			)
+		: null;
+
+	let arrayItems = [];
+	let legacyItems = [];
+	let emailItems = [];
+	let arrayFailed = false;
+	let legacyFailed = false;
+	let emailFailed = !emailScopedQuery;
+	let hasEmittedData = false;
+
+	const emit = () => {
+		hasEmittedData = true;
+		onData(mergePortalsById(arrayItems, legacyItems, emailItems));
+	};
+
+	const maybeReportError = (error) => {
+		if (arrayFailed && legacyFailed && emailFailed) {
+			onError(error);
+		}
+	};
+
+	const unsubscribeArray = onSnapshot(
+		arrayScopedQuery,
+		(snapshot) => {
+			arrayFailed = false;
+			arrayItems = mapSnapshotDocs(snapshot);
+			emit();
+		},
+		(error) => {
+			arrayFailed = true;
+			arrayItems = [];
+			if (!isPermissionDenied(error) || (!hasEmittedData && legacyFailed)) {
+				maybeReportError(error);
+			}
+		},
+	);
+
+	const unsubscribeLegacy = onSnapshot(
+		legacyScopedQuery,
+		(snapshot) => {
+			legacyFailed = false;
+			legacyItems = mapSnapshotDocs(snapshot);
+			emit();
+		},
+		(error) => {
+			legacyFailed = true;
+			legacyItems = [];
+			if (!isPermissionDenied(error) || (!hasEmittedData && arrayFailed)) {
+				maybeReportError(error);
+			}
+		},
+	);
+
+	const unsubscribeEmail = emailScopedQuery
+		? onSnapshot(
+				emailScopedQuery,
+				(snapshot) => {
+					emailFailed = false;
+					emailItems = mapSnapshotDocs(snapshot);
+					emit();
+				},
+				(error) => {
+					emailFailed = true;
+					emailItems = [];
+					if (
+						!isPermissionDenied(error) ||
+						(!hasEmittedData && arrayFailed && legacyFailed)
+					) {
+						maybeReportError(error);
+					}
+				},
+			)
+		: () => {};
+
+	return () => {
+		unsubscribeArray();
+		unsubscribeLegacy();
+		unsubscribeEmail();
+	};
 }
 
 export function subscribeAllOutsourcePortals(onData, onError) {
@@ -180,12 +298,30 @@ export function subscribeAllOutsourcePortals(onData, onError) {
 export async function getOutsourcePortalsByUser(userId) {
 	const firestore = ensureFirebaseReady();
 	const normalizedUserId = String(userId || "").trim();
-	const scopedQuery = query(
+	if (!normalizedUserId) return [];
+	const arrayScopedQuery = query(
 		collection(firestore, OUTSOURCE_PORTALS),
 		where("assignedUserIds", "array-contains", normalizedUserId),
 	);
-	const snapshot = await getDocs(scopedQuery);
-	return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+	const legacyScopedQuery = query(
+		collection(firestore, OUTSOURCE_PORTALS),
+		where("assignedUserId", "==", normalizedUserId),
+	);
+
+	const [arrayResult, legacyResult] = await Promise.all([
+		getDocs(arrayScopedQuery)
+			.then((snapshot) => ({ items: mapSnapshotDocs(snapshot), error: null }))
+			.catch((error) => ({ items: [], error })),
+		getDocs(legacyScopedQuery)
+			.then((snapshot) => ({ items: mapSnapshotDocs(snapshot), error: null }))
+			.catch((error) => ({ items: [], error })),
+	]);
+
+	if (arrayResult.error && legacyResult.error) {
+		throw arrayResult.error;
+	}
+
+	return mergePortalsById(arrayResult.items, legacyResult.items);
 }
 
 export async function migrateOutsourcePortalsToAssignedUserIds() {

@@ -21,7 +21,7 @@ function toIsoSinceDate(days) {
 }
 
 export default function ExpensesPage() {
-  const { user, profile } = useAuth()
+  const { user, profile, loading: authLoading } = useAuth()
   const toast = useToast()
   const [expenses, setExpenses] = useState([])
   const [lookbackDays, setLookbackDays] = useState(EXPENSE_LOOKBACK_OPTIONS[2].value)
@@ -40,8 +40,9 @@ export default function ExpensesPage() {
   }
 
   useEffect(() => {
+    if (authLoading || !user?.uid) return
     loadExpenses()
-  }, [lookbackDays])
+  }, [lookbackDays, authLoading, user?.uid])
 
   const totalExpenses = useMemo(
     () => expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0),

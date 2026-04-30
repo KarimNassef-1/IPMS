@@ -226,15 +226,24 @@ export default function ProfilePage() {
         throw new Error(reasonMessage)
       }
 
+      let emailVerificationRequired = false
+
       if (wantsEmailUpdate && normalizedEmail !== String(user?.email || '').toLowerCase()) {
-        await changeUserEmailWithReauth(secureCurrentPassword, normalizedEmail)
+        const emailResult = await changeUserEmailWithReauth(secureCurrentPassword, normalizedEmail)
+        emailVerificationRequired = Boolean(emailResult?.verificationRequired)
       }
 
       if (wantsPasswordUpdate) {
         await changeUserPasswordWithReauth(secureCurrentPassword, secureNewPassword)
       }
 
-      setStatus('Credentials updated successfully.')
+      if (emailVerificationRequired && wantsPasswordUpdate) {
+        setStatus('Password updated. Please verify the new email from your inbox to finish changing login email.')
+      } else if (emailVerificationRequired) {
+        setStatus('Verification email sent. Please open your inbox and verify the new email to finish the change.')
+      } else {
+        setStatus('Credentials updated successfully.')
+      }
       setStatusType('success')
       setSecureCode('')
       setSecureCurrentPassword('')
