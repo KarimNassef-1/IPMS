@@ -230,7 +230,9 @@ export async function consumeClientPortalQrInvite({ token, user, profile }) {
 
 export function buildClientPortalLoginRedirect(token) {
 	const safeToken = safeText(token);
-	const next = withBasePath(`/client-access?token=${encodeURIComponent(safeToken)}`);
+	const next = withBasePath(
+		`/client-access?token=${encodeURIComponent(safeToken)}`,
+	);
 	return withBasePath(`/login?next=${encodeURIComponent(next)}`);
 }
 
