@@ -6,9 +6,12 @@ import { AuthProvider } from './contexts/AuthContext.jsx'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 import AppRouter from './router/AppRouter'
 
+const basePath = import.meta.env.BASE_URL || '/'
+const swPath = `${basePath.replace(/\/$/, '')}/sw.js`
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={basePath}>
       <ToastProvider>
         <AuthProvider>
           <AppRouter />
@@ -20,7 +23,7 @@ createRoot(document.getElementById('root')).render(
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
+    navigator.serviceWorker.register(swPath).catch((error) => {
       console.error('Service worker registration failed:', error)
     })
   })

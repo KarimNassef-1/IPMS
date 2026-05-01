@@ -54,6 +54,21 @@ function getAppOrigin() {
 	return "";
 }
 
+function getBasePath() {
+	const rawBase =
+		typeof import.meta !== "undefined" ? import.meta?.env?.BASE_URL : "/";
+	const safeBase = safeText(rawBase, "/");
+	if (safeBase === "/") return "";
+	return safeBase.endsWith("/") ? safeBase.slice(0, -1) : safeBase;
+}
+
+function withBasePath(path) {
+	const safePath = safeText(path);
+	if (!safePath.startsWith("/")) return safePath;
+	const basePath = getBasePath();
+	return `${basePath}${safePath}`;
+}
+
 export async function createClientPortalQrInvite({
 	projectId,
 	projectName,
@@ -92,7 +107,9 @@ export async function createClientPortalQrInvite({
 		createdByName: safeText(createdByName, "Admin"),
 	});
 
-	const path = `/client-access?token=${encodeURIComponent(token)}`;
+	const path = withBasePath(
+		`/client-access?token=${encodeURIComponent(token)}`,
+	);
 	const origin = getAppOrigin();
 	const accessUrl = origin ? `${origin}${path}` : path;
 	const qrDataUrl = await QRCode.toDataURL(accessUrl, {
@@ -213,8 +230,8 @@ export async function consumeClientPortalQrInvite({ token, user, profile }) {
 
 export function buildClientPortalLoginRedirect(token) {
 	const safeToken = safeText(token);
-	const next = `/client-access?token=${encodeURIComponent(safeToken)}`;
-	return `/login?next=${encodeURIComponent(next)}`;
+	const next = withBasePath(`/client-access?token=${encodeURIComponent(safeToken)}`);
+	return withBasePath(`/login?next=${encodeURIComponent(next)}`);
 }
 
 export async function getClientAccessGrantsByUserId(clientId) {
