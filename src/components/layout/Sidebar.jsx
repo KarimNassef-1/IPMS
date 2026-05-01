@@ -5,6 +5,7 @@ import logomarkNoBg from '../../../img/no bg logos/logomarknobg.webp'
 
 const navigationItems = [
   { label: 'Dashboard', to: '/', icon: 'dashboard' },
+  { label: 'Client Portal', to: '/client-portal', icon: 'clientPortal' },
   { label: 'Projects', to: '/projects', icon: 'projects' },
   { label: 'Work Hub', to: '/outsource', icon: 'outsourcePortal' },
   { label: 'Tasks', to: '/tasks', icon: 'tasks' },
@@ -74,6 +75,14 @@ function NavIcon({ name, isActive, isSidebarCollapsed }) {
           <rect x="3" y="6" width="18" height="13" rx="2.5" stroke="currentColor" strokeWidth="1.9" />
           <path d="M3 10h18" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
           <path d="M8 4.5h8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+        </svg>
+      )
+    case 'clientPortal':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden="true">
+          <rect x="3" y="5" width="18" height="14" rx="2.8" stroke="currentColor" strokeWidth="1.9" />
+          <path d="M3 9h18" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+          <path d="M8 14h8M8 17h5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       )
     case 'tasks':
@@ -179,6 +188,9 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
       if (item.to === '/' && role === 'outsource') {
         return { ...item, label: 'My Dashboard' }
       }
+      if (item.to === '/' && role === 'client') {
+        return { ...item, label: 'Overview' }
+      }
       if (item.to === '/outsource') {
         return { ...item, label: 'Work Hub' }
       }
@@ -188,6 +200,7 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
   ).filter((item) => {
     const permissionByRoute = {
       '/': 'dashboard',
+      '/client-portal': 'clientPortal',
       '/projects': 'projects',
       '/outsource': 'outsourcePortal',
       '/tasks': 'tasks',

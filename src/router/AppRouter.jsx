@@ -3,6 +3,7 @@ import AppLayout from '../components/layout/AppLayout'
 import { PermissionRoute, ProtectedRoute } from '../components/guards/ProtectedRoute'
 import LoginPage from '../pages/LoginPage'
 import HomePage from '../pages/HomePage'
+import ClientPortalPage from '../pages/ClientPortalPage'
 import ProjectsPage from '../pages/ProjectsPage'
 import OutsourcePortalPage from '../pages/OutsourcePortalPage'
 import TasksPage from '../pages/TasksPage'
@@ -12,6 +13,7 @@ import BudgetsPage from '../pages/BudgetsPage'
 import AnalyticsPage from '../pages/AnalyticsPage'
 import ProfilePage from '../pages/ProfilePage'
 import TeamUsersPage from '../pages/TeamUsersPage'
+import ClientPortalAccessPage from '../pages/client/ClientPortalAccessPage'
 import UnauthorizedPage from '../pages/UnauthorizedPage'
 import NotFoundPage from '../pages/NotFoundPage'
 
@@ -20,6 +22,7 @@ export default function AppRouter() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
+      <Route path="/client-access" element={<ClientPortalAccessPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
@@ -28,6 +31,9 @@ export default function AppRouter() {
           </Route>
           <Route element={<PermissionRoute permission="projects" />}>
             <Route path="projects" element={<ProjectsPage />} />
+          </Route>
+          <Route element={<PermissionRoute permission="clientPortal" />}>
+            <Route path="client-portal" element={<ClientPortalPage />} />
           </Route>
           <Route element={<PermissionRoute permission="outsourcePortal" />}>
             <Route path="outsource" element={<OutsourcePortalPage />} />

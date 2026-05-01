@@ -37,6 +37,49 @@ function normalizeCategoryList(values) {
 	);
 }
 
+function safeText(value, fallback = "") {
+	const text = String(value || "").trim();
+	return text || fallback;
+}
+
+function safeTextLower(value, fallback = "") {
+	return safeText(value, fallback).toLowerCase();
+}
+
+function safeTextList(values) {
+	if (!Array.isArray(values)) return [];
+	return values.map((item) => safeText(item)).filter(Boolean);
+}
+
+function normalizeProjectPayload(payload) {
+	const clientName = safeText(payload?.clientName);
+	const clientEmail = safeTextLower(payload?.clientEmail);
+	const clientEmails = Array.from(
+		new Set(
+			safeTextList(payload?.clientEmails)
+				.map((email) => email.toLowerCase())
+				.concat(clientEmail ? [clientEmail] : []),
+		),
+	);
+	const clientUserId = safeText(payload?.clientUserId);
+	const clientUserIds = Array.from(
+		new Set(
+			safeTextList(payload?.clientUserIds).concat(
+				clientUserId ? [clientUserId] : [],
+			),
+		),
+	);
+
+	return {
+		...payload,
+		clientName,
+		clientEmail,
+		clientEmails,
+		clientUserId: clientUserIds[0] || "",
+		clientUserIds,
+	};
+}
+
 function money(value) {
 	return Math.max(Number(value) || 0, 0);
 }
@@ -282,9 +325,10 @@ export async function createProject(payload) {
 		"status",
 	]);
 	const firestore = ensureFirebaseReady();
+	const normalizedPayload = normalizeProjectPayload(payload);
 
 	const data = {
-		...payload,
+		...normalizedPayload,
 		createdAt: new Date().toISOString(),
 	};
 
@@ -348,9 +392,10 @@ export function subscribeProjects(onData, onError) {
 
 export async function updateProject(id, payload) {
 	const firestore = ensureFirebaseReady();
+	const normalizedPayload = normalizeProjectPayload(payload);
 
 	const ref = doc(firestore, PROJECTS, id);
-	await updateDoc(ref, payload);
+	await updateDoc(ref, normalizedPayload);
 }
 
 export async function deleteProject(id) {

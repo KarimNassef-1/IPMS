@@ -22,6 +22,7 @@ function normalizeRole(roleValue) {
   const normalized = String(roleValue || '').trim().toLowerCase()
   if (normalized === 'admin') return 'admin'
   if (normalized === 'partner') return 'partner'
+  if (normalized === 'client') return 'client'
   if (normalized === 'outsource') return 'outsource'
   if (normalized === 'manager') return 'manager'
   if (normalized === 'finance') return 'finance'
@@ -360,6 +361,7 @@ export function AuthProvider({ children }) {
         },
         isAdmin: role === 'admin',
         isPartner: role === 'partner',
+        isClient: role === 'client',
       }
     },
     [user, role, profile, teams, rolePermissions, loading, rolePermissionsReady, updateProfileSettings],

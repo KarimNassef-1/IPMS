@@ -32,12 +32,59 @@ service cloud.firestore {
       return isSignedIn() && userRole() == 'outsource';
     }
 
+    function isClient() {
+      return isSignedIn() && userRole() == 'client';
+    }
+
     function isAdminOrPartner() {
       return isAdmin() || isPartner();
     }
 
     function containsUid(values) {
       return values is list && request.auth.uid in values;
+    }
+
+    function containsValue(values, value) {
+      return values is list && value in values;
+    }
+
+    function currentUserEmail() {
+      return userDocExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email is string
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
+        : (
+          request.auth.token.email is string
+            ? request.auth.token.email
+            : ''
+        );
+    }
+
+    function currentUserName() {
+      return userDocExists() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.name is string
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.name
+        : '';
+    }
+
+    function isClientProject(data) {
+      return isClient() && (
+        data.clientUserId == request.auth.uid ||
+        containsUid(data.clientUserIds) ||
+        data.clientEmail == currentUserEmail() ||
+        containsValue(data.clientEmails, currentUserEmail()) ||
+        data.clientName == currentUserName()
+      );
+    }
+
+    function canClientReadProject(projectId) {
+      return isClient() &&
+        projectId is string &&
+        exists(/databases/$(database)/documents/projects/$(projectId)) &&
+        isClientProject(get(/databases/$(database)/documents/projects/$(projectId)).data);
+    }
+
+    function hasClientProjectGrant(projectId) {
+      return isClient() &&
+        projectId is string &&
+        exists(/databases/$(database)/documents/client_project_access/$(request.auth.uid + '_' + projectId));
     }
 
     // Supports both legacy single assignee and new multi-assignee array.
@@ -97,13 +144,52 @@ service cloud.firestore {
     }
 
     match /projects/{projectId} {
-      allow read: if isAdminOrPartner();
+      allow read: if isAdminOrPartner() || isClientProject(resource.data) || hasClientProjectGrant(projectId);
       allow create, update, delete: if isAdmin();
     }
 
     match /services/{serviceId} {
-      allow read: if isAdminOrPartner();
+      allow read: if isAdminOrPartner() || canClientReadProject(resource.data.projectId);
       allow create, update, delete: if isAdmin();
+    }
+
+    match /client_project_access/{accessId} {
+      allow read: if isAdminOrPartner() || (isClient() && resource.data.clientId == request.auth.uid);
+      allow create: if isClient() && request.resource.data.clientId == request.auth.uid;
+      allow update, delete: if isAdminOrPartner();
+    }
+
+    match /client_portal_qr_tokens/{tokenId} {
+      allow read: if isAdmin() || (
+        isClient() &&
+        resource.data.active == true &&
+        (
+          resource.data.clientEmail == '' ||
+          resource.data.clientEmail == currentUserEmail()
+        )
+      );
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isClient() &&
+        (
+          resource.data.clientEmail == '' ||
+          resource.data.clientEmail == currentUserEmail()
+        ) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'consumedCount',
+          'active',
+          'lastConsumedAt',
+          'lastConsumedByUserId',
+          'lastConsumedByEmail',
+          'updatedAt'
+        ])
+      );
+    }
+
+    match /client_tickets/{ticketId} {
+      allow read: if isAdminOrPartner() || (isClient() && resource.data.clientId == request.auth.uid);
+      allow create: if isClient() && request.resource.data.clientId == request.auth.uid;
+      allow update, delete: if isAdminOrPartner();
     }
 
     match /outsource_portals/{portalId} {

@@ -27,8 +27,15 @@ export default function LoginForm() {
         : buildManagedLoginEmailFromPhone(normalizePhoneNumber(rawIdentifier))
 
       await login(normalizedIdentifier, formData.password)
+      const searchParams = new URLSearchParams(window.location.search)
+      const nextPath = String(searchParams.get('next') || '').trim()
+      const safeNextPath =
+        nextPath.startsWith('/') && !nextPath.startsWith('//')
+          ? nextPath
+          : '/'
+
       // Full reload avoids post-login hydration races with protected data queries.
-      window.location.assign('/')
+      window.location.assign(safeNextPath)
     } catch (loginError) {
       let message = ''
       if (loginError?.code === 'auth/invalid-credential') {

@@ -35,6 +35,7 @@ import {
   serviceAgencyShareValue,
   serviceContractValue,
 } from '../utils/serviceFinance'
+import { createClientPortalQrInvite } from '../services/clientQrAccessService'
 
 function createInstallment() {
   return {
@@ -204,8 +205,11 @@ export default function ProjectsPage() {
   const [showComposer, setShowComposer] = useState(false)
   const [projectAssigneeSearch, setProjectAssigneeSearch] = useState('')
   const [serviceAssigneeSearch, setServiceAssigneeSearch] = useState('')
+  const [generatingQrProjectId, setGeneratingQrProjectId] = useState('')
+  const [projectQrInvite, setProjectQrInvite] = useState(null)
   const [projectForm, setProjectForm] = useState({
     clientName: '',
+    clientEmail: '',
     projectName: '',
     projectType: '',
     type: PROJECT_TYPES[0],
@@ -966,6 +970,7 @@ export default function ProjectsPage() {
 
       setProjectForm({
         clientName: '',
+        clientEmail: '',
         projectName: '',
         projectType: '',
         type: PROJECT_TYPES[0],
@@ -1115,6 +1120,48 @@ export default function ProjectsPage() {
     }
   }
 
+  async function generateProjectClientQrInvite(project) {
+    if (!isAdmin) {
+      setProjectError('Only admin can generate client portal QR access.')
+      return
+    }
+
+    const safeProjectId = String(project?.id || '').trim()
+    if (!safeProjectId) return
+
+    setGeneratingQrProjectId(safeProjectId)
+    setProjectError('')
+
+    try {
+      const invite = await createClientPortalQrInvite({
+        projectId: safeProjectId,
+        projectName: project?.projectName,
+        clientEmail: project?.clientEmail,
+        createdByUserId: user?.uid,
+        createdByName: user?.displayName || user?.email || 'Admin',
+      })
+
+      setProjectQrInvite(invite)
+      toast.success(`Client QR access generated for ${project?.projectName || 'project'}.`)
+    } catch (error) {
+      setProjectError(error?.message || 'Failed to generate client QR access link.')
+    } finally {
+      setGeneratingQrProjectId('')
+    }
+  }
+
+  async function copyQrInviteValue(value, label) {
+    const text = String(value || '').trim()
+    if (!text) return
+
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(`${label} copied.`)
+    } catch {
+      toast.error(`Unable to copy ${label.toLowerCase()}.`)
+    }
+  }
+
   function startEditService(service) {
     if (!isAdmin) {
       setServiceError('Only admin can edit services.')
@@ -1137,6 +1184,7 @@ export default function ProjectsPage() {
     setProjectSuccess('')
     setProjectForm({
       clientName: '',
+      clientEmail: '',
       projectName: '',
       projectType: '',
       type: PROJECT_TYPES[0],
@@ -1249,6 +1297,7 @@ export default function ProjectsPage() {
     setEditingProjectId(project.id)
     setProjectForm({
       clientName: project.clientName || '',
+      clientEmail: project.clientEmail || '',
       projectName: project.projectName || '',
       projectType: project.projectType || '',
       type: normalizeProjectType(project.type || PROJECT_TYPES[0]),
@@ -1308,6 +1357,7 @@ export default function ProjectsPage() {
             ) : null}
           </div>
           <input name="clientName" value={projectForm.clientName} onChange={handleProjectInput} placeholder="Client name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
+          <input name="clientEmail" type="email" value={projectForm.clientEmail} onChange={handleProjectInput} placeholder="Client login email (optional)" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           <input name="projectName" value={projectForm.projectName} onChange={handleProjectInput} placeholder="Project name" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           <input name="projectType" value={projectForm.projectType} onChange={handleProjectInput} placeholder="Project type" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2034,10 +2084,62 @@ export default function ProjectsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => generateProjectClientQrInvite(project)}
+                    disabled={generatingQrProjectId === project.id}
+                    className="inline-flex min-h-9 items-center rounded-lg bg-violet-600 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {generatingQrProjectId === project.id ? 'Generating...' : 'Client QR'}
+                  </button>
+                ) : null}
                 {isAdmin ? <button type="button" onClick={() => startEditProject(project)} className="inline-flex min-h-9 items-center rounded-lg bg-amber-500 px-3 py-1 text-xs font-semibold text-white">Edit</button> : null}
                 {isAdmin ? <button type="button" onClick={() => removeProject(project.id)} className="inline-flex min-h-9 items-center rounded-lg bg-rose-600 px-3 py-1 text-xs font-semibold text-white">Delete</button> : null}
               </div>
             </div>
+
+            {projectQrInvite?.projectId === project.id ? (
+              <div className="mt-3 rounded-2xl border border-violet-200 bg-violet-50/70 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-violet-700">Exclusive Client QR Access</p>
+                    <p className="mt-1 text-xs text-violet-800/85 break-all">{projectQrInvite.accessUrl}</p>
+                    <p className="mt-1 text-[11px] text-violet-700/80">
+                      Expires: {new Date(projectQrInvite.expiresAt).toLocaleString('en-GB')}
+                    </p>
+                  </div>
+                  <img
+                    src={projectQrInvite.qrDataUrl}
+                    alt={`Client access QR for ${project.projectName}`}
+                    className="h-28 w-28 rounded-xl border border-violet-200 bg-white p-1"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => copyQrInviteValue(projectQrInvite.accessUrl, 'Access link')}
+                    className="inline-flex min-h-9 items-center rounded-lg border border-violet-200 bg-white px-3 py-1 text-xs font-semibold text-violet-700"
+                  >
+                    Copy Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyQrInviteValue(projectQrInvite.token, 'Token')}
+                    className="inline-flex min-h-9 items-center rounded-lg border border-violet-200 bg-white px-3 py-1 text-xs font-semibold text-violet-700"
+                  >
+                    Copy Token
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProjectQrInvite(null)}
+                    className="inline-flex min-h-9 items-center rounded-lg border border-violet-200 bg-white px-3 py-1 text-xs font-semibold text-violet-700"
+                  >
+                    Hide
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-3 space-y-2">
               {services.filter((service) => service.projectId === project.id).map((service) => {
