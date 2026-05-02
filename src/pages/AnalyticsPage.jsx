@@ -1,5 +1,5 @@
 import ModuleShell from "../components/layout/ModuleShell";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
 	Area,
 	Bar,
@@ -18,26 +18,11 @@ import {
 	YAxis,
 	BarChart,
 } from "recharts";
-import {
-	getExpenses,
-	getTransactions,
-	subscribeExpenses,
-	subscribeTransactions,
-} from "../services/financeService";
-import {
-	getAllServices,
-	getProjects,
-	getProjectsByIds,
-	getServicesByCategories,
-	subscribeAllServices,
-	subscribeProjects,
-	subscribeServicesByCategories,
-} from "../services/projectService";
-import { getTasks, subscribeTasks } from "../services/taskService";
 import { calculateRecognizedPaidRevenue, groupByMonth } from "../utils/calculations";
 import { formatCurrency, parseMoney } from "../utils/helpers";
 import { serviceAgencyShareValue } from "../utils/serviceFinance";
 import { useAuth } from "../hooks/useAuth";
+import { useAgencyDataStreams } from "../hooks/useAgencyDataStreams";
 import { createAllowedServiceCategorySet } from "../utils/serviceAccess";
 
 const PIE_COLORS = ["#8246f6", "#a989f8", "#d2c2ff", "#5f2fe2", "#7b5eea", "#b7a2fa"];
@@ -116,116 +101,38 @@ export default function AnalyticsPage() {
 		() => createAllowedServiceCategorySet(serviceCategories),
 		[serviceCategories],
 	);
-	const [transactions, setTransactions] = useState([]);
-	const [expenses, setExpenses] = useState([]);
-	const [projects, setProjects] = useState([]);
-	const [services, setServices] = useState([]);
-	const [tasks, setTasks] = useState([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState("");
-
-	useEffect(() => {
-		if (authLoading || !user?.uid) return undefined;
-
-		let unsubscribers = [];
-		const categoryList = Array.from(allowedCategorySet);
-
-		async function initialize() {
-			setLoading(true);
-			setError("");
-			const sinceDate = new Date(new Date().setMonth(new Date().getMonth() - 24)).toISOString();
-
-			try {
-				const [tx, ex, ta] = await Promise.all([
-					getTransactions({ sinceDate }),
-					getExpenses({ sinceDate }),
-					getTasks(),
-				]);
-
-				let initialServices = [];
-				let initialProjects = [];
-				if (hasFullFinancialAccess) {
-					[initialServices, initialProjects] = await Promise.all([
-						getAllServices(),
-						getProjects(),
-					]);
-				} else {
-					initialServices = await getServicesByCategories(categoryList);
-					initialProjects = await getProjectsByIds(
-						initialServices
-							.map((service) => service.projectId)
-							.filter(Boolean),
-					);
-				}
-
-				setTransactions(tx);
-				setExpenses(ex);
-				setProjects(initialProjects);
-				setServices(initialServices);
-				setTasks(ta);
-
-				const onStreamError = (streamError) => {
-					setError(streamError?.message || "Analytics live stream disconnected.");
-				};
-
-				unsubscribers = [
-					subscribeTransactions(setTransactions, onStreamError),
-					subscribeExpenses(setExpenses, onStreamError),
-					...(hasFullFinancialAccess
-						? [
-							subscribeProjects((items) => {
-								setProjects(items);
-							}, onStreamError),
-							subscribeAllServices((items) => {
-								setServices(items);
-							}, onStreamError),
-						]
-						: [
-							subscribeServicesByCategories(categoryList, async (items) => {
-								setServices(items);
-								const scopedProjects = await getProjectsByIds(
-									items.map((service) => service.projectId).filter(Boolean),
-								);
-								setProjects(scopedProjects);
-							}, onStreamError),
-						]),
-					subscribeTasks(setTasks, onStreamError),
-				];
-			} catch (loadError) {
-				setError(loadError?.message || "Failed to load analytics data.");
-			} finally {
-				setLoading(false);
-			}
-		}
-
-		initialize();
-
-		return () => {
-			unsubscribers.forEach((unsubscribe) => {
-				if (typeof unsubscribe === "function") unsubscribe();
-			});
-		};
-	}, [allowedCategorySet, hasFullFinancialAccess, authLoading, user?.uid]);
+	const { transactions, expenses, projects, services, tasks, summaryOverview, loading, error } = useAgencyDataStreams({
+		authLoading,
+		userId: user?.uid,
+		hasFullFinancialAccess,
+		allowedCategorySet,
+		monthsBack: 24,
+	});
 
 	const analytics = useMemo(() => {
+		const summaryTotals = summaryOverview?.totals || {};
 		const paidServices = services.filter((service) => service.chargeType !== "free");
 		const paidServicesCount = paidServices.length;
-		const totalRecognized = paidServices.reduce(
+		const computedRecognized = paidServices.reduce(
 			(sum, service) => sum + Math.max(calculateRecognizedPaidRevenue(service), 0),
 			0,
 		);
-		const totalAgencyShare = paidServices.reduce(
+		const computedAgencyShare = paidServices.reduce(
 			(sum, service) => sum + Math.max(serviceAgencyShareValue(service), 0),
 			0,
 		);
-		const totalPending = Math.max(totalAgencyShare - totalRecognized, 0);
+		const totalRecognized = Number(summaryTotals.recognizedPaid) || computedRecognized;
+		const totalAgencyShare = Number(summaryTotals.totalAgencyShare) || computedAgencyShare;
+		const totalPending = Number(summaryTotals.pendingShare) || Math.max(totalAgencyShare - totalRecognized, 0);
 
 		const totalExpenses = expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0);
 		const recognizedNet = totalRecognized - totalExpenses;
 
-		const cashIn = transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0);
-		const cashOut = totalExpenses;
-		const cashPosition = cashIn - cashOut;
+		const cashIn = Number(summaryTotals.cashIn)
+			? Number(summaryTotals.cashIn)
+			: transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0);
+		const cashOut = Number(summaryTotals.cashOut) || totalExpenses;
+		const cashPosition = Number(summaryTotals.cashPosition) || cashIn - cashOut;
 		const avgRecognizedPerService = paidServicesCount
 			? totalRecognized / paidServicesCount
 			: 0;
@@ -236,14 +143,20 @@ export default function AnalyticsPage() {
 			? (totalExpenses / totalRecognized) * 100
 			: 0;
 
-		const completedTasks = tasks.filter(
-			(item) => String(item.status || "").toLowerCase() === "completed",
-		).length;
+		const completedTasks = Number(summaryTotals.completedTasks)
+			? Number(summaryTotals.completedTasks)
+			: tasks.filter(
+					(item) => String(item.status || "").toLowerCase() === "completed",
+				).length;
 		const completedProjects = projects.filter(
 			(item) => String(item.status || "").toLowerCase() === "completed",
 		).length;
 
-		const taskCompletionRate = tasks.length ? (completedTasks / tasks.length) * 100 : 0;
+		const taskCompletionRate = Number(summaryTotals.taskCompletionRate)
+			? Number(summaryTotals.taskCompletionRate)
+			: tasks.length
+				? (completedTasks / tasks.length) * 100
+				: 0;
 		const projectCompletionRate = projects.length ? (completedProjects / projects.length) * 100 : 0;
 		const plannerIncludedCount = paidServices.filter(
 			(service) => service.includeInFinancialPlanner !== false,
@@ -435,7 +348,7 @@ export default function AnalyticsPage() {
 			projectStatusMix,
 			runRateMonthly,
 		};
-	}, [expenses, projects, services, tasks, transactions]);
+	}, [expenses, projects, services, summaryOverview, tasks, transactions]);
 
 	const performanceRings = [
 		{

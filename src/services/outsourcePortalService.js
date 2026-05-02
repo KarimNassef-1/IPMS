@@ -3,6 +3,7 @@ import {
 	collection,
 	deleteDoc,
 	doc,
+	getDoc,
 	getDocs,
 	onSnapshot,
 	query,
@@ -11,6 +12,9 @@ import {
 } from "firebase/firestore";
 import { ensureFirebaseReady } from "./firebase";
 import { assertRequiredFields } from "../utils/helpers";
+import { normalizeTicketOwner } from "../domain/workflow/canonicalWorkflow";
+import { createWorkflowAuditEntry } from "../utils/workflowLifecycle";
+import { refreshAgencyOverviewSummary } from "./summaryService";
 
 const OUTSOURCE_PORTALS = "outsource_portals";
 
@@ -69,6 +73,9 @@ function ensureAssignedUsers(payload) {
 }
 
 function normalizeTask(payload, index) {
+	const review =
+		payload?.review && typeof payload.review === "object" ? payload.review : {};
+	const owner = normalizeTicketOwner(payload?.owner || payload);
 	return {
 		id: safeText(payload?.id, `task_${index + 1}`),
 		name: safeText(payload?.name),
@@ -79,6 +86,30 @@ function normalizeTask(payload, index) {
 		completed: Boolean(payload?.completed),
 		createdAt: safeText(payload?.createdAt, new Date().toISOString()),
 		comments: Array.isArray(payload?.comments) ? payload.comments : [],
+		review: {
+			status: safeText(review?.status),
+			submittedAt: safeText(review?.submittedAt),
+			submittedById: safeText(review?.submittedById),
+			submittedByName: safeText(review?.submittedByName),
+			reviewedAt: safeText(review?.reviewedAt),
+			reviewerId: safeText(review?.reviewerId),
+			reviewerName: safeText(review?.reviewerName),
+			rejectionReason: safeText(review?.rejectionReason),
+			slaDueAt: safeText(review?.slaDueAt),
+			escalationLevel: Math.max(Number(review?.escalationLevel) || 0, 0),
+			escalationReason: safeText(review?.escalationReason),
+		},
+		owner: {
+			ownerUserId: owner.ownerUserId,
+			ownerName: owner.ownerName,
+			ownerEmail: owner.ownerEmail,
+			ownerAssignedAt: owner.ownerAssignedAt,
+		},
+		ownerUserId: owner.ownerUserId,
+		ownerName: owner.ownerName,
+		ownerEmail: owner.ownerEmail,
+		ownerAssignedAt: owner.ownerAssignedAt,
+		auditTrail: Array.isArray(payload?.auditTrail) ? payload.auditTrail : [],
 		order: payload?.order !== undefined ? payload.order : index,
 	};
 }
@@ -112,6 +143,31 @@ function normalizePhases(phases) {
 
 function normalizePortalPayload(payload) {
 	const assignees = normalizeAssignedUsers(payload);
+	const defaultOwner = normalizeTicketOwner({
+		id: assignees.assignedUserIds[0],
+		name: assignees.assignedUserNames[0],
+		email: assignees.assignedUserEmails[0],
+	});
+	const normalizedPhases = normalizePhases(payload?.phases).map((phase) => ({
+		...phase,
+		tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
+			if (safeText(task?.ownerUserId)) return task;
+			return {
+				...task,
+				owner: {
+					ownerUserId: defaultOwner.ownerUserId,
+					ownerName: defaultOwner.ownerName,
+					ownerEmail: defaultOwner.ownerEmail,
+					ownerAssignedAt: defaultOwner.ownerAssignedAt,
+				},
+				ownerUserId: defaultOwner.ownerUserId,
+				ownerName: defaultOwner.ownerName,
+				ownerEmail: defaultOwner.ownerEmail,
+				ownerAssignedAt: defaultOwner.ownerAssignedAt,
+			};
+		}),
+	}));
+
 	return {
 		...assignees,
 		projectId: safeText(payload?.projectId),
@@ -121,7 +177,7 @@ function normalizePortalPayload(payload) {
 		serviceCategory: safeText(payload?.serviceCategory),
 		timelineStart: safeText(payload?.timelineStart),
 		timelineEnd: safeText(payload?.timelineEnd),
-		phases: normalizePhases(payload?.phases),
+		phases: normalizedPhases,
 		notes: safeText(payload?.notes),
 	};
 }
@@ -157,6 +213,7 @@ export async function createOutsourcePortal(payload) {
 	};
 
 	const ref = await addDoc(collection(firestore, OUTSOURCE_PORTALS), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 	return { id: ref.id, ...data };
 }
 
@@ -168,11 +225,77 @@ export async function updateOutsourcePortal(portalId, payload) {
 		...normalized,
 		updatedAt: new Date().toISOString(),
 	});
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteOutsourcePortal(portalId) {
 	const firestore = ensureFirebaseReady();
 	await deleteDoc(doc(firestore, OUTSOURCE_PORTALS, portalId));
+	refreshAgencyOverviewSummary().catch(() => {});
+}
+
+export async function updateOutsourceTaskOwnership(
+	portalId,
+	phaseId,
+	taskId,
+	owner,
+	actor = {},
+) {
+	const firestore = ensureFirebaseReady();
+	const safePortalId = safeText(portalId);
+	if (!safePortalId) throw new Error("Portal id is required.");
+
+	const ref = doc(firestore, OUTSOURCE_PORTALS, safePortalId);
+	const snapshot = await getDoc(ref);
+	if (!snapshot.exists()) throw new Error("Portal not found.");
+	const portal = snapshot.data() || {};
+
+	const normalizedOwner = normalizeTicketOwner(owner);
+	const actorId = safeText(actor?.id || actor?.uid);
+	const actorName = safeText(actor?.name || actor?.displayName, "System");
+	const sourcePortal = safeText(actor?.sourcePortal, "outsource");
+
+	const phases = (Array.isArray(portal?.phases) ? portal.phases : []).map(
+		(phase) => {
+			if (safeText(phase?.id) !== safeText(phaseId)) return phase;
+			return {
+				...phase,
+				tasks: (Array.isArray(phase?.tasks) ? phase.tasks : []).map((task) => {
+					if (safeText(task?.id) !== safeText(taskId)) return task;
+					const auditTrail = Array.isArray(task?.auditTrail)
+						? task.auditTrail
+						: [];
+					return {
+						...task,
+						owner: normalizedOwner,
+						ownerUserId: normalizedOwner.ownerUserId,
+						ownerName: normalizedOwner.ownerName,
+						ownerEmail: normalizedOwner.ownerEmail,
+						ownerAssignedAt: normalizedOwner.ownerAssignedAt,
+						auditTrail: [
+							...auditTrail,
+							createWorkflowAuditEntry({
+								action: "task_owner_changed",
+								note: `Task owner set to ${normalizedOwner.ownerName}.`,
+								actorId,
+								actorName,
+								metadata: {
+									sourcePortal,
+									changedFields: ["ownerUserId", "ownerName", "ownerEmail"],
+								},
+							}),
+						],
+					};
+				}),
+			};
+		},
+	);
+
+	await updateDoc(ref, {
+		phases,
+		updatedAt: new Date().toISOString(),
+	});
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export function subscribeOutsourcePortalsForUser(

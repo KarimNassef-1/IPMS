@@ -4,25 +4,25 @@ export default function WorkHubStatsStrip({ isSupervisor, workspaceSummary }) {
       label: isSupervisor ? 'Assignments' : 'My Assignments',
       value: workspaceSummary.assignments,
       sub: isSupervisor ? 'Active portals' : 'On your board',
-      color: 'text-slate-900',
+      color: 'text-sky-800',
     },
     {
       label: 'Needs Review',
       value: workspaceSummary.inReviewTasks,
       sub: 'Waiting for supervisor',
-      color: workspaceSummary.inReviewTasks > 0 ? 'text-amber-700' : 'text-slate-900',
+      color: workspaceSummary.inReviewTasks > 0 ? 'text-amber-800' : 'text-slate-900',
     },
     {
       label: 'Blocked',
       value: workspaceSummary.blockedTasks,
       sub: 'Need unblock action',
-      color: workspaceSummary.blockedTasks > 0 ? 'text-rose-700' : 'text-slate-900',
+      color: workspaceSummary.blockedTasks > 0 ? 'text-rose-800' : 'text-slate-900',
     },
     {
       label: 'Open Tasks',
       value: workspaceSummary.openTasks,
       sub: 'Active execution load',
-      color: 'text-slate-900',
+      color: 'text-emerald-800',
     },
   ]
 

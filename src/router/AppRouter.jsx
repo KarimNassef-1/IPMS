@@ -7,6 +7,7 @@ import ClientPortalPage from '../pages/ClientPortalPage'
 import ProjectsPage from '../pages/ProjectsPage'
 import OutsourcePortalPage from '../pages/OutsourcePortalPage'
 import TasksPage from '../pages/TasksPage'
+import DailyTasksPage from '../pages/DailyTasksPage'
 import FinancialsPage from '../pages/FinancialsPage'
 import ExpensesPage from '../pages/ExpensesPage'
 import BudgetsPage from '../pages/BudgetsPage'
@@ -41,7 +42,9 @@ export default function AppRouter() {
           <Route element={<PermissionRoute permission="tasks" />}>
             <Route path="tasks" element={<TasksPage />} />
           </Route>
-          <Route path="daily-tasks" element={<Navigate to="/tasks" replace />} />
+          <Route element={<PermissionRoute permission="dailyTasks" />}>
+            <Route path="daily-tasks" element={<DailyTasksPage />} />
+          </Route>
           <Route element={<PermissionRoute permission="financials" />}>
             <Route path="financials" element={<FinancialsPage />} />
           </Route>

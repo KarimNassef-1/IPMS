@@ -64,6 +64,9 @@ export default function WorkHubPortalCard({
   onAddPhase,
   onTogglePhaseCompletion,
   onDeleteAssignment,
+  onApproveTask,
+  onRejectTask,
+  onEscalateTask,
 }) {
   const completion = getCompletion(portal.phases)
   const timeline = timelineStatus(portal.timelineStart, portal.timelineEnd)
@@ -91,7 +94,7 @@ export default function WorkHubPortalCard({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold text-slate-900">{portal.projectName || 'Unnamed Project'}</h3>
-                <span className="rounded-md bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-600">
+                <span className="rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
                   {portal.serviceName || 'Service'}
                 </span>
                 {portal.serviceCategory ? (
@@ -126,7 +129,7 @@ export default function WorkHubPortalCard({
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
-                      completion === 100 ? 'bg-emerald-500' : 'bg-violet-500'
+                      completion === 100 ? 'bg-emerald-500' : 'bg-sky-500'
                     }`}
                     style={{ width: `${completion}%` }}
                   />
@@ -161,7 +164,7 @@ export default function WorkHubPortalCard({
 
         {(((isSupervisor && (activeView === 'assignments' || activeView === 'timelines')) ||
           (!isSupervisor && (activeView === 'summary' || activeView === 'updates')))) && portal.notes ? (
-          <p className="rounded-lg border-l-2 border-violet-300 bg-violet-50/50 px-4 py-2.5 text-sm text-slate-700">
+          <p className="rounded-lg border-l-2 border-sky-300 bg-sky-50/50 px-4 py-2.5 text-sm text-slate-700">
             {portal.notes}
           </p>
         ) : null}
@@ -198,7 +201,7 @@ export default function WorkHubPortalCard({
                   onDragEnd={() => setDraggedPhaseKey('')}
                   className={`rounded-lg border transition-colors ${
                     draggedPhaseKey === `${portal.id}:${phase.id}`
-                      ? 'border-violet-200 bg-violet-50/30'
+                      ? 'border-sky-200 bg-sky-50/30'
                       : 'border-slate-100'
                   }`}
                 >
@@ -274,7 +277,7 @@ export default function WorkHubPortalCard({
                             <div className="h-1 w-20 overflow-hidden rounded-full bg-slate-100">
                               <div
                                 className={`h-full rounded-full transition-all ${
-                                  phaseCompletion === 100 ? 'bg-emerald-500' : 'bg-violet-500'
+                                  phaseCompletion === 100 ? 'bg-emerald-500' : 'bg-sky-500'
                                 }`}
                                 style={{ width: `${phaseCompletion}%` }}
                               />
@@ -367,6 +370,8 @@ export default function WorkHubPortalCard({
                       const commentsKey = `${portal.id}:${phase.id}:${task.id}`
                       const isExpanded = expandedComments.has(commentsKey)
                       const comments = Array.isArray(task.comments) ? task.comments : []
+                      const review = task?.review && typeof task.review === 'object' ? task.review : {}
+                      const hasEscalation = Number(review?.escalationLevel) > 0
 
                       return (
                         <div
@@ -388,7 +393,7 @@ export default function WorkHubPortalCard({
                           } ${
                             draggedTaskKey === taskDragKey ? 'opacity-40' : ''
                           } ${
-                            bulkSelectedTasks.has(taskDragKey) ? 'bg-violet-50/50' : 'hover:bg-slate-50/60'
+                            bulkSelectedTasks.has(taskDragKey) ? 'bg-sky-50/50' : 'hover:bg-slate-50/60'
                           }`}
                         >
                           <div className="flex items-center gap-3 px-4 py-2.5">
@@ -403,7 +408,7 @@ export default function WorkHubPortalCard({
                                 type="checkbox"
                                 checked={bulkSelectedTasks.has(taskDragKey)}
                                 onChange={() => toggleBulkTaskSelection(portal.id, phase.id, task.id)}
-                                className="h-3.5 w-3.5 flex-shrink-0 accent-violet-600"
+                                className="h-3.5 w-3.5 flex-shrink-0 accent-sky-700"
                               />
                             ) : null}
 
@@ -480,6 +485,16 @@ export default function WorkHubPortalCard({
                                         {task.blockedReason}
                                       </span>
                                     ) : null}
+                                    {review?.status ? (
+                                      <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
+                                        Review: {review.status}
+                                      </span>
+                                    ) : null}
+                                    {hasEscalation ? (
+                                      <span className="rounded-md bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium text-orange-700">
+                                        Escalation L{review.escalationLevel}
+                                      </span>
+                                    ) : null}
                                 </>
                               ) : null}
 
@@ -509,6 +524,32 @@ export default function WorkHubPortalCard({
                                   {statusCfg.label}
                                 </span>
                               )}
+
+                              {isSupervisor && taskStatus === 'needs_review' ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => onApproveTask(portal, phase.id, task.id)}
+                                    className="rounded-md bg-emerald-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-700"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onRejectTask(portal, phase.id, task.id)}
+                                    className="rounded-md bg-amber-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-amber-700"
+                                  >
+                                    Reject
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onEscalateTask(portal, phase.id, task.id)}
+                                    className="rounded-md border border-orange-300 px-2 py-0.5 text-[11px] font-medium text-orange-700 hover:bg-orange-50"
+                                  >
+                                    Escalate
+                                  </button>
+                                </>
+                              ) : null}
 
                               {canEdit ? (
                                 <button
@@ -571,7 +612,7 @@ export default function WorkHubPortalCard({
                                   })
                                 }}
                                 className={`rounded px-2 py-1 text-[11px] transition-colors ${
-                                  isExpanded ? 'text-violet-600' : 'text-slate-400 hover:text-slate-600'
+                                  isExpanded ? 'text-sky-700' : 'text-slate-400 hover:text-slate-600'
                                 }`}
                               >
                                 {comments.length > 0 ? `${comments.length} comment${comments.length !== 1 ? 's' : ''}` : 'Comment'}
@@ -611,7 +652,7 @@ export default function WorkHubPortalCard({
                                 </div>
                               ) : null}
                               <div className="flex gap-2">
-                                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-violet-100 text-[10px] font-semibold text-violet-600">
+                                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-sky-100 text-[10px] font-semibold text-sky-700">
                                   {(profile?.name || user?.displayName || user?.email || 'Y').charAt(0).toUpperCase()}
                                 </div>
                                 <textarea
@@ -770,7 +811,7 @@ export default function WorkHubPortalCard({
                       <div className="relative h-5 min-w-[160px] flex-1 overflow-hidden rounded-md bg-slate-100">
                         <div
                           className={`h-full flex items-center pl-2 text-[9px] font-semibold text-white transition-all ${
-                            gOverdue ? 'bg-rose-400' : phase.completed ? 'bg-emerald-500' : gComp >= 60 ? 'bg-violet-500' : 'bg-slate-400'
+                            gOverdue ? 'bg-rose-400' : phase.completed ? 'bg-emerald-500' : gComp >= 60 ? 'bg-sky-500' : 'bg-slate-400'
                           }`}
                           style={{ width: `${Math.max(gComp, 4)}%` }}
                         >

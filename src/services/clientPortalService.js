@@ -1,10 +1,14 @@
 import {
 	addDoc,
+	arrayUnion,
 	collection,
 	documentId,
+	doc,
+	getDoc,
 	getDocs,
 	onSnapshot,
 	query,
+	updateDoc,
 	where,
 } from "firebase/firestore";
 import { ensureFirebaseReady } from "./firebase";
@@ -12,6 +16,16 @@ import {
 	getClientAccessGrantsByLinkedUserId,
 	getClientAccessGrantsByUserId,
 } from "./clientQrAccessService";
+import { normalizeServicePaymentStatus } from "../utils/serviceFinance";
+import {
+	canTransitionTicketWorkflow,
+	createWorkflowAuditEntry,
+	mapTicketStatusToWorkflowStatus,
+	normalizeTicketWorkflowPayload,
+} from "../utils/workflowLifecycle";
+import { normalizeTicketOwner } from "../domain/workflow/canonicalWorkflow";
+import { emitWorkflowEvent } from "./workflowEvents";
+import { refreshAgencyOverviewSummary } from "./summaryService";
 
 const PROJECTS = "projects";
 const SERVICES = "services";
@@ -72,18 +86,10 @@ function normalizeProjectStatusProgress(status) {
 	return 0;
 }
 
-function normalizePaymentStatus(status) {
-	const normalized = safeTextLower(status, "pending");
-	if (["pending", "paid", "completed", "free"].includes(normalized)) {
-		return normalized;
-	}
-	return "pending";
-}
-
 function serviceProgress(services) {
 	if (!Array.isArray(services) || !services.length) return 0;
 	const doneCount = services.filter((service) => {
-		const status = normalizePaymentStatus(service?.paymentStatus);
+		const status = normalizeServicePaymentStatus(service?.paymentStatus);
 		return status === "paid" || status === "completed" || status === "free";
 	}).length;
 	return Math.round((doneCount / services.length) * 100);
@@ -108,6 +114,43 @@ function toClientMatchProfiles(user, profile) {
 		email,
 		names,
 	};
+}
+
+function isGrantMatchIdentity(grant, identity) {
+	const grantClientId = safeText(grant?.clientId);
+	const grantLinkedUserId = safeText(grant?.linkedClientUserId);
+	const grantEmail = safeTextLower(grant?.clientEmail);
+	const grantLinkedEmail = safeTextLower(grant?.linkedClientEmail);
+
+	if (
+		identity?.uid &&
+		(grantClientId === identity.uid || grantLinkedUserId === identity.uid)
+	) {
+		return true;
+	}
+
+	if (
+		identity?.email &&
+		(grantEmail === identity.email || grantLinkedEmail === identity.email)
+	) {
+		return true;
+	}
+
+	if (
+		!identity?.uid &&
+		!identity?.email &&
+		Array.isArray(identity?.names) &&
+		identity.names.length
+	) {
+		const grantName = safeText(grant?.clientName);
+		const linkedGrantName = safeText(grant?.linkedClientName);
+		return (
+			identity.names.includes(grantName) ||
+			identity.names.includes(linkedGrantName)
+		);
+	}
+
+	return false;
 }
 
 async function queryProjectsByClientIdentity({ uid, email, names }) {
@@ -140,10 +183,12 @@ async function queryProjectsByClientIdentity({ uid, email, names }) {
 		);
 	}
 
-	for (const name of names) {
-		lookups.push(
-			getDocs(query(projectCollection, where("clientName", "==", name))),
-		);
+	if (!uid && !email) {
+		for (const name of names) {
+			lookups.push(
+				getDocs(query(projectCollection, where("clientName", "==", name))),
+			);
+		}
 	}
 
 	if (!lookups.length) return [];
@@ -222,8 +267,36 @@ function buildInvoices(services, projectsById) {
 			projectsById?.[service?.projectId]?.projectName,
 			"Project",
 		);
-		const paymentStatus = normalizePaymentStatus(service?.paymentStatus);
+		const paymentStatus = normalizeServicePaymentStatus(service?.paymentStatus);
 		const currency = safeText(service?.currency, "EGP");
+		const milestones = Array.isArray(service?.milestones)
+			? service.milestones
+			: [];
+
+		if (milestones.length) {
+			for (const milestone of milestones) {
+				const normalizedMilestoneStatus = safeTextLower(
+					milestone?.status,
+					"pending",
+				);
+				if (!["approved", "billed"].includes(normalizedMilestoneStatus))
+					continue;
+
+				invoices.push({
+					id: `${service.id}_m_${safeText(milestone?.id, milestone?.name || "milestone")}`,
+					projectId: service.projectId,
+					projectName,
+					serviceName,
+					amount: Number(milestone?.amount) || 0,
+					dueDate: safeText(milestone?.dueDate || milestone?.reviewedAt),
+					status: normalizedMilestoneStatus,
+					currency,
+					invoiceTrigger: "milestone_approved",
+					milestoneName: safeText(milestone?.name, "Milestone"),
+				});
+			}
+			continue;
+		}
 
 		if (Array.isArray(service?.installments) && service.installments.length) {
 			for (const installment of service.installments) {
@@ -309,6 +382,8 @@ export async function getClientWorkspace(user, profile) {
 			throw error;
 		}
 	}
+	grants = grants.filter((grant) => isGrantMatchIdentity(grant, identity));
+
 	const grantedProjectIds = grants
 		.map((grant) => safeText(grant?.projectId))
 		.filter(Boolean);
@@ -326,6 +401,18 @@ export async function getClientWorkspace(user, profile) {
 				throw error;
 			}
 		}
+	}
+	if (
+		!mappedProjects.length &&
+		!identity.uid &&
+		!identity.email &&
+		identity.names.length
+	) {
+		mappedProjects = await queryProjectsByClientIdentity({
+			uid: "",
+			email: "",
+			names: identity.names,
+		});
 	}
 
 	let grantedProjects = [];
@@ -369,7 +456,7 @@ export async function getClientWorkspace(user, profile) {
 				progress: computeProjectProgress(project, projectServices),
 				servicesCount: projectServices.length,
 				openServicesCount: projectServices.filter((service) => {
-					const status = normalizePaymentStatus(service?.paymentStatus);
+					const status = normalizeServicePaymentStatus(service?.paymentStatus);
 					return (
 						status !== "completed" && status !== "paid" && status !== "free"
 					);
@@ -425,6 +512,10 @@ export async function createClientTicket(payload) {
 	if (!details) throw new Error("Details are required.");
 
 	const now = new Date().toISOString();
+	const workflow = normalizeTicketWorkflowPayload({
+		...payload,
+		createdAt: now,
+	});
 	const data = {
 		clientId,
 		clientEmail: safeTextLower(payload?.clientEmail),
@@ -433,11 +524,39 @@ export async function createClientTicket(payload) {
 		details,
 		priority: safeTextLower(payload?.priority, "normal"),
 		status: "open",
+		requestType: workflow.requestType,
+		workflowStatus: workflow.workflowStatus,
+		projectId: workflow.projectId,
+		serviceId: workflow.serviceId,
+		milestoneId: workflow.milestoneId,
+		deliverableId: workflow.deliverableId,
+		scopeChangeId: workflow.scopeChangeId,
+		ownerUserId: workflow.ownerUserId,
+		ownerName: workflow.ownerName,
+		ownerEmail: workflow.ownerEmail,
+		slaTargetHours: workflow.slaTargetHours,
+		slaDueAt: workflow.slaDueAt,
+		stateHistory: [
+			createWorkflowAuditEntry({
+				action: "ticket_created",
+				note: `Client request created (${workflow.requestType}).`,
+				actorId: clientId,
+				actorName: safeText(payload?.clientName, "Client"),
+				metadata: {
+					workflowStatus: workflow.workflowStatus,
+					priority: safeTextLower(payload?.priority, "normal"),
+					sourcePortal: safeText(payload?.sourcePortal, "client"),
+					reason: safeText(payload?.reason, "ticket_created"),
+					changedFields: ["status", "workflowStatus"],
+				},
+			}),
+		],
 		createdAt: now,
 		updatedAt: now,
 	};
 
 	const ref = await addDoc(collection(firestore, CLIENT_TICKETS), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 	return { id: ref.id, ...data };
 }
 
@@ -483,18 +602,129 @@ export function subscribeAllClientTickets(onData, onError) {
 	);
 }
 
-export async function updateClientTicketStatus(ticketId, status) {
+export async function updateClientTicketStatus(ticketId, status, options = {}) {
 	const firestore = ensureFirebaseReady();
 	const safeId = safeText(ticketId);
 	if (!safeId) throw new Error("Ticket id is required.");
 	const validStatuses = ["open", "resolved", "closed"];
 	const safeStatus = validStatuses.includes(status) ? status : "open";
-	await import("firebase/firestore").then(({ doc, updateDoc }) =>
-		updateDoc(doc(firestore, CLIENT_TICKETS, safeId), {
-			status: safeStatus,
-			updatedAt: new Date().toISOString(),
-		}),
-	);
+	const actorId = safeText(options?.actorId);
+	const actorName = safeText(options?.actorName, "System");
+	const reason = safeText(options?.reason);
+	const sourcePortal = safeText(options?.sourcePortal, "admin");
+
+	const ref = doc(firestore, CLIENT_TICKETS, safeId);
+	const snapshot = await getDoc(ref);
+	if (!snapshot.exists()) throw new Error("Ticket not found.");
+	const current = snapshot.data() || {};
+	const fromWorkflowStatus = safeTextLower(current?.workflowStatus, "intake");
+	const nextWorkflowStatus = mapTicketStatusToWorkflowStatus(safeStatus);
+
+	if (!canTransitionTicketWorkflow(fromWorkflowStatus, nextWorkflowStatus)) {
+		throw new Error(
+			`Invalid ticket workflow transition: ${fromWorkflowStatus} -> ${nextWorkflowStatus}`,
+		);
+	}
+
+	const updatePayload = {
+		status: safeStatus,
+		workflowStatus: nextWorkflowStatus,
+		updatedAt: new Date().toISOString(),
+	};
+
+	if (actorId) {
+		updatePayload.stateHistory = arrayUnion(
+			createWorkflowAuditEntry({
+				action: "status_updated",
+				note: reason || `Ticket marked ${safeStatus}.`,
+				actorId,
+				actorName,
+				metadata: {
+					fromStatus: safeTextLower(current?.status, "open"),
+					status: safeStatus,
+					fromWorkflowStatus,
+					workflowStatus: nextWorkflowStatus,
+					reason,
+					sourcePortal,
+					changedFields: ["status", "workflowStatus"],
+				},
+			}),
+		);
+	}
+
+	await updateDoc(ref, updatePayload);
+	refreshAgencyOverviewSummary().catch(() => {});
+	emitWorkflowEvent({
+		eventType: "ticket_status_changed",
+		portal: sourcePortal,
+		message: `Ticket status changed to ${safeStatus}`,
+		description: safeText(current?.subject, "Client ticket"),
+		metadata: {
+			ticketId: safeId,
+			fromStatus: safeTextLower(current?.status, "open"),
+			toStatus: safeStatus,
+			fromWorkflowStatus,
+			toWorkflowStatus: nextWorkflowStatus,
+			reason,
+		},
+	}).catch(() => {});
+}
+
+export async function updateClientTicketOwnership(ticketId, owner, actor = {}) {
+	const firestore = ensureFirebaseReady();
+	const safeId = safeText(ticketId);
+	if (!safeId) throw new Error("Ticket id is required.");
+
+	const normalizedOwner = normalizeTicketOwner(owner);
+
+	const ref = doc(firestore, CLIENT_TICKETS, safeId);
+	const snapshot = await getDoc(ref);
+	if (!snapshot.exists()) throw new Error("Ticket not found.");
+	const current = snapshot.data() || {};
+	const sourcePortal = safeText(actor?.sourcePortal, "admin");
+
+	await updateDoc(ref, {
+		ownerUserId: normalizedOwner.ownerUserId,
+		ownerName: normalizedOwner.ownerName,
+		ownerEmail: normalizedOwner.ownerEmail,
+		ownerAssignedAt: normalizedOwner.ownerAssignedAt,
+		updatedAt: new Date().toISOString(),
+		stateHistory: arrayUnion(
+			createWorkflowAuditEntry({
+				action: "owner_assigned",
+				note: normalizedOwner.ownerUserId
+					? `Owner assigned to ${normalizedOwner.ownerName}.`
+					: "Owner cleared.",
+				actorId: safeText(actor?.id || actor?.uid),
+				actorName: safeText(actor?.name || actor?.displayName, "System"),
+				metadata: {
+					previousOwnerUserId: safeText(current?.ownerUserId),
+					previousOwnerName: safeText(current?.ownerName),
+					ownerUserId: normalizedOwner.ownerUserId,
+					ownerEmail: normalizedOwner.ownerEmail,
+					sourcePortal,
+					changedFields: [
+						"ownerUserId",
+						"ownerName",
+						"ownerEmail",
+						"ownerAssignedAt",
+					],
+				},
+			}),
+		),
+	});
+	refreshAgencyOverviewSummary().catch(() => {});
+	emitWorkflowEvent({
+		eventType: "ticket_owner_changed",
+		portal: sourcePortal,
+		message: `Ticket owner updated to ${normalizedOwner.ownerName}`,
+		description: safeText(current?.subject, "Client ticket"),
+		metadata: {
+			ticketId: safeId,
+			previousOwnerUserId: safeText(current?.ownerUserId),
+			nextOwnerUserId: normalizedOwner.ownerUserId,
+		},
+	}).catch(() => {});
 }
 
 export function getClientHealthLabel(progress) {

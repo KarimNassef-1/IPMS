@@ -9,7 +9,7 @@ import { auth, firebaseError, firebaseReady, firestore } from '../services/fireb
 import { AuthContext } from './auth-context'
 import { DEFAULT_ROLE_PERMISSIONS } from '../utils/constants'
 import { subscribeRolePermissions, subscribeTeams } from '../services/teamUsersService'
-import { createNotification } from '../services/notificationService'
+import { publishLoginEvent } from '../services/workflowEvents'
 import { getClientLinkDisplayName, setClientLinkDisplayName } from '../services/clientQrAccessService'
 import {
   canAccessServiceCategory,
@@ -51,6 +51,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [authIssue, setAuthIssue] = useState(null)
   const [teams, setTeams] = useState([])
   const [rolePermissions, setRolePermissions] = useState(DEFAULT_ROLE_PERMISSIONS)
   const [rolePermissionsReady, setRolePermissionsReady] = useState(false)
@@ -63,7 +64,7 @@ export function AuthProvider({ children }) {
       return undefined
     }
 
-    if (!user) {
+    if (!user || authIssue) {
       setRolePermissions(DEFAULT_ROLE_PERMISSIONS)
       setRolePermissionsReady(true)
       return undefined
@@ -83,7 +84,7 @@ export function AuthProvider({ children }) {
     )
 
     return () => unsubscribePermissions()
-  }, [user])
+  }, [user, authIssue])
 
   useEffect(() => {
     if (!user || !auth) return undefined
@@ -130,7 +131,7 @@ export function AuthProvider({ children }) {
       return undefined
     }
 
-    if (!user) {
+    if (!user || authIssue) {
       setTeams([])
       return undefined
     }
@@ -145,7 +146,7 @@ export function AuthProvider({ children }) {
     )
 
     return () => unsubscribeTeams()
-  }, [user])
+  }, [user, authIssue])
 
   useEffect(() => {
     if (!firebaseReady || !auth || !firestore) {
@@ -164,6 +165,7 @@ export function AuthProvider({ children }) {
           setUser(null)
           setRole(null)
           setProfile(null)
+          setAuthIssue(null)
           setLoading(false)
           return
         }
@@ -177,6 +179,7 @@ export function AuthProvider({ children }) {
             photoURL: '',
             teamIds: [],
           })
+          setAuthIssue(null)
           setLoading(false)
           return
         }
@@ -188,6 +191,11 @@ export function AuthProvider({ children }) {
 
         const userDocRef = doc(firestore, 'users', firebaseUser.uid)
         const userSnapshot = await getDoc(userDocRef)
+        const fallbackProfile = {
+          name: firebaseUser.displayName || firebaseUser.email || 'User',
+          photoURL: firebaseUser.photoURL || '',
+          teamIds: [],
+        }
 
         if (userSnapshot.exists()) {
           const userData = userSnapshot.data()
@@ -195,10 +203,17 @@ export function AuthProvider({ children }) {
           const normalizedRole = normalizeRole(userSnapshot.data().role)
 
           if (accountStatus !== 'active') {
-            await signOut(auth)
-            setUser(null)
             setRole(null)
-            setProfile(null)
+            setProfile({
+              name: userData.name || fallbackProfile.name,
+              photoURL: userData.photoURL || fallbackProfile.photoURL,
+              teamIds: Array.isArray(userData.teamIds) ? userData.teamIds : [],
+              passwordResetRequired: Boolean(userData.passwordResetRequired),
+            })
+            setAuthIssue({
+              code: `account-${accountStatus}`,
+              message: accountStatusErrorMessage(accountStatus),
+            })
             setLoading(false)
             return
           }
@@ -207,24 +222,35 @@ export function AuthProvider({ children }) {
             name: userData.name || firebaseUser.displayName || 'User',
             photoURL: userData.photoURL || firebaseUser.photoURL || '',
             teamIds: Array.isArray(userData.teamIds) ? userData.teamIds : [],
+            passwordResetRequired: Boolean(userData.passwordResetRequired),
           })
 
           if (normalizedRole) {
             setRole(normalizedRole)
+            setAuthIssue(null)
           } else {
-            await signOut(auth)
-            setUser(null)
             setRole(null)
-            setProfile(null)
+            setProfile({
+              name: userData.name || fallbackProfile.name,
+              photoURL: userData.photoURL || fallbackProfile.photoURL,
+              teamIds: Array.isArray(userData.teamIds) ? userData.teamIds : [],
+              passwordResetRequired: Boolean(userData.passwordResetRequired),
+            })
+            setAuthIssue({
+              code: 'invalid-role',
+              message: 'Your account profile is not mapped to a valid role. Contact the system admin.',
+            })
             setLoading(false)
             return
           }
 
         } else {
-          await signOut(auth)
-          setUser(null)
           setRole(null)
-          setProfile(null)
+          setProfile(fallbackProfile)
+          setAuthIssue({
+            code: 'missing-profile',
+            message: 'Your user account exists, but your workspace profile is missing. Contact the system admin.',
+          })
           setLoading(false)
           return
 
@@ -232,6 +258,10 @@ export function AuthProvider({ children }) {
       } catch (error) {
         console.error('Failed to resolve auth state:', error)
         setRole(null)
+        setAuthIssue({
+          code: 'auth-resolution-failed',
+          message: error?.message || 'Failed to resolve your account access state.',
+        })
       } finally {
         setLoading(false)
       }
@@ -261,48 +291,22 @@ export function AuthProvider({ children }) {
 
     const userDocRef = doc(firestore, 'users', credential?.user?.uid || '')
     const userSnapshot = credential?.user?.uid ? await getDoc(userDocRef) : null
-
-    if (!userSnapshot?.exists()) {
-      await signOut(auth)
-      throw new Error('You are unauthorized to access this system. Please contact the system admin.')
-    }
-
-    const userData = userSnapshot?.exists() ? userSnapshot.data() : {}
+    const userData = userSnapshot?.exists() ? userSnapshot.data() : null
+    const normalizedRole = normalizeRole(userData?.role)
     const accountStatus = normalizeAccountStatus(userData?.accountStatus)
 
-    if (accountStatus !== 'active') {
-      await signOut(auth)
-      throw new Error(accountStatusErrorMessage(accountStatus))
-    }
-
-    const actorName =
-      String(userData?.name || '').trim() ||
-      String(credential?.user?.displayName || '').trim() ||
-      'User'
-    const actorPhotoURL =
-      String(userData?.photoURL || '').trim() ||
-      String(credential?.user?.photoURL || '').trim() ||
-      ''
-    const actorEmail = String(credential?.user?.email || normalizedEmail).trim().toLowerCase()
-
-    try {
-      const loggedInAt = new Date().toISOString()
-      await createNotification({
-        userId: credential?.user?.uid || '',
-        type: 'login',
-        action: 'login',
-        message: `${actorName} logged in`,
-        actorId: credential?.user?.uid || '',
-        actorName,
-        actorEmail,
-        actorPhotoURL,
-        loggedInAt,
-        date: loggedInAt,
-        status: 'unread',
-        adminFeed: true,
-      })
-    } catch (error) {
-      console.warn('Login notification failed:', error)
+    if (userSnapshot?.exists() && normalizedRole && accountStatus === 'active') {
+      try {
+        await publishLoginEvent({
+          user: credential?.user,
+          profile: {
+            name: userData?.name || credential?.user?.displayName || 'User',
+            photoURL: userData?.photoURL || credential?.user?.photoURL || '',
+          },
+        })
+      } catch (error) {
+        console.warn('Login notification failed:', error)
+      }
     }
 
     return credential
@@ -370,9 +374,11 @@ export function AuthProvider({ children }) {
         user,
         role,
         profile,
+        authIssue,
+        sessionBlocked: Boolean(user && authIssue),
         serviceCategories: resolvedServiceCategories,
         rolePermissions,
-        loading: loading || !rolePermissionsReady,
+        loading: loading || (!authIssue && !rolePermissionsReady),
         firebaseReady,
         firebaseError,
         login,
@@ -394,7 +400,7 @@ export function AuthProvider({ children }) {
         isClient: role === 'client',
       }
     },
-    [user, role, profile, teams, rolePermissions, loading, rolePermissionsReady, updateProfileSettings],
+    [user, role, profile, authIssue, teams, rolePermissions, loading, rolePermissionsReady, updateProfileSettings],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

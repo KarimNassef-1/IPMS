@@ -78,6 +78,12 @@ function projectAccessDocId(clientId, projectId) {
 	return `${safeText(clientId)}_${safeText(projectId)}`;
 }
 
+function buildGrantIdentityKey({ clientId, clientEmail, projectId }) {
+	return [safeText(clientId), safeTextLower(clientEmail), safeText(projectId)]
+		.filter(Boolean)
+		.join("::");
+}
+
 function getAppOrigin() {
 	if (typeof window !== "undefined" && window.location?.origin) {
 		return window.location.origin;
@@ -407,6 +413,11 @@ export async function consumeClientPortalQrInvite({ token, user, profile }) {
 				linkedClientName: linkClientName,
 				projectId,
 				projectName: safeText(tokenData?.projectName, "Project"),
+				identityKey: buildGrantIdentityKey({
+					clientId: userId,
+					clientEmail: userEmail,
+					projectId,
+				}),
 				accessSource: "qr",
 				linkedAt: nowIso,
 				updatedAt: nowIso,
@@ -430,6 +441,11 @@ export async function consumeClientPortalQrInvite({ token, user, profile }) {
 						clientId: linkedClientUserId,
 						clientEmail: linkedClientEmail,
 						clientName: linkClientName,
+						identityKey: buildGrantIdentityKey({
+							clientId: linkedClientUserId,
+							clientEmail: linkedClientEmail,
+							projectId,
+						}),
 						linkedClientUserId: "",
 						accessSource: "qr_linked",
 					},
@@ -567,6 +583,11 @@ export async function provisionClientProjectGrant({
 			linkedClientName: safeText(clientName, "Client"),
 			projectId: safeProjectId,
 			projectName: safeText(projectName, "Project"),
+			identityKey: buildGrantIdentityKey({
+				clientId: safeClientId,
+				clientEmail,
+				projectId: safeProjectId,
+			}),
 			accessSource: "provisioned",
 			linkedAt: nowIso,
 			updatedAt: nowIso,

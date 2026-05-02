@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { addExpense, deleteExpense, getExpenses, restoreExpense } from '../services/financeService'
 import { EXPENSE_CATEGORIES } from '../utils/constants'
 import { formatCurrency, parseMoney } from '../utils/helpers'
-import { createNotification } from '../services/notificationService'
+import { emitWorkflowEvent } from '../services/workflowEvents'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 
@@ -68,34 +68,23 @@ export default function ExpensesPage() {
     event.preventDefault()
     await addExpense({ ...form, amount: Number(form.amount) || 0 })
 
-    await createNotification({
-      userId: user?.uid,
-      type: 'expense',
-      action: 'expense_created',
+    await emitWorkflowEvent({
+      eventType: 'project_lifecycle_transition',
+      user,
+      profile,
+      portal: 'admin',
       message: `Expense recorded: ${form.name} (${formatCurrency(form.amount)})`,
-      actorId: user?.uid || '',
-      actorName: profile?.name || 'User',
-      actorEmail: user?.email || '',
-      actorPhotoURL: profile?.photoURL || '',
-      date: new Date().toISOString(),
-      status: 'unread',
-      adminFeed: true,
+      metadata: { expenseAction: 'created', category: form.category },
     })
 
     if (parseMoney(form.amount) > 10000) {
-      await createNotification({
-        userId: user?.uid,
-        type: 'system',
-        action: 'high_expense_warning',
+      await emitWorkflowEvent({
+        eventType: 'project_lifecycle_transition',
+        user,
+        profile,
+        portal: 'admin',
         message: `Budget low warning for ${form.category}: high expense detected`,
-        actorId: user?.uid || '',
-        actorName: profile?.name || 'User',
-        actorEmail: user?.email || '',
-        actorPhotoURL: profile?.photoURL || '',
-        date: new Date().toISOString(),
-        status: 'unread',
-        adminFeed: true,
-        source: 'system',
+        metadata: { source: 'system', expenseAction: 'high_warning' },
       })
     }
 
@@ -115,18 +104,13 @@ export default function ExpensesPage() {
     if (!expense) return
 
     await deleteExpense(expenseId)
-    await createNotification({
-      userId: user?.uid,
-      type: 'expense',
-      action: 'expense_deleted',
+    await emitWorkflowEvent({
+      eventType: 'project_lifecycle_transition',
+      user,
+      profile,
+      portal: 'admin',
       message: `Expense deleted: ${expense.name || 'Expense'}`,
-      actorId: user?.uid || '',
-      actorName: profile?.name || 'User',
-      actorEmail: user?.email || '',
-      actorPhotoURL: profile?.photoURL || '',
-      date: new Date().toISOString(),
-      status: 'unread',
-      adminFeed: true,
+      metadata: { expenseAction: 'deleted', expenseId },
     })
     await loadExpenses()
 

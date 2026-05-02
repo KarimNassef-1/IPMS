@@ -21,7 +21,7 @@ import {
 } from '../services/outsourcePortalService'
 import { PROJECT_STATUSES, PROJECT_TYPES, SERVICE_CATEGORIES } from '../utils/constants'
 import { formatCurrency } from '../utils/helpers'
-import { createNotification } from '../services/notificationService'
+import { emitProjectLifecycleTransitionEvent, emitWorkflowEvent } from '../services/workflowEvents'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import {
@@ -37,158 +37,23 @@ import {
 } from '../utils/serviceFinance'
 import { buildManagedLoginEmailFromName, generateManagedTemporaryPassword } from '../utils/helpers'
 import { createClientPortalQrInvite, deactivateClientPortalQrInvite, getActiveClientPortalQrInvite, provisionClientProjectGrant } from '../services/clientQrAccessService'
+import { normalizeProjectLifecycleStage, resolveProjectLifecycleStage } from '../domain/workflow/canonicalWorkflow'
+import {
+  buildRevenueBreakdownByProjectId,
+  buildServicesByProjectId,
+  buildVisibleProjects,
+  createInitialServiceForm,
+  createInstallment,
+  getOutsourceUserLabel,
+  normalizeAccountRole,
+  normalizeAccountStatus,
+  normalizeProjectType,
+  serviceToForm,
+} from './projects/projectsPageModel'
 
-function createInstallment() {
-  return {
-    amount: '',
-    dueDate: '',
-    status: 'pending',
-  }
-}
-
-function normalizeProjectType(value) {
-  return value === 'Mix' ? 'One-time + Monthly' : value
-}
-
-function getOutsourceUserLabel(user) {
-  return user?.displayName || user?.email || 'Outsource user'
-}
-
-function normalizeAccountRole(value) {
-  return String(value || '').trim().toLowerCase()
-}
-
-function normalizeAccountStatus(value) {
-  const normalized = String(value || 'active').trim().toLowerCase()
-  if (normalized === 'locked' || normalized === 'removed') return normalized
-  return 'active'
-}
-
-function createInitialServiceForm() {
-  return {
-    projectId: '',
-    serviceName: '',
-    serviceCategory: '',
-    chargeType: 'paid',
-    includeInFinancialPlanner: true,
-    allocationMode: 'auto',
-    manualAllocation: {
-      karimSalary: '',
-      youssefSalary: '',
-      agencyOperations: '',
-      marketingSales: '',
-    },
-    deliveryType: 'inhouse',
-    assignedUserId: '',
-    assignedUserName: '',
-    assignedUserIds: [],
-    assignedUserNames: [],
-    outsourcePercentage: '',
-    recurringOutsourcePercentage: '',
-    outsourceServiceFee: '',
-    billingType: 'one-time',
-    paymentMode: 'installments',
-    revenue: '',
-    oneTimeAmount: '',
-    monthlyAmount: '',
-    monthsCount: '1',
-    recurringOngoing: false,
-    recurringStart: '',
-    recurringEnd: '',
-    valueAmount: '',
-    paymentStatus: 'pending',
-    websiteLinkName: '',
-    websiteLinkUrl: '',
-    paymentDate: '',
-    installments: [createInstallment(), createInstallment()],
-  }
-}
-
-function serviceToForm(service) {
-  const billingType = service.billingType || 'one-time'
-  const paymentMode = billingType === 'monthly' ? 'monthly' : service.paymentMode || 'installments'
-  const installments =
-    Array.isArray(service.installments) && service.installments.length
-      ? service.installments.map((item) => ({
-          amount: String(Number(item.amount) || ''),
-          dueDate: item.dueDate || '',
-          status: item.status || 'pending',
-        }))
-      : [createInstallment(), createInstallment()]
-
-  const chargedRevenue = Number(service.revenue) || 0
-  const fallbackValue = Number(service.valueAmount) || Number(service.totalContractValue) || chargedRevenue
-  const assignedUserIds = Array.isArray(service.assignedUserIds)
-    ? service.assignedUserIds.filter(Boolean)
-    : service.assignedUserId
-      ? [service.assignedUserId]
-      : []
-  const assignedUserNames = Array.isArray(service.assignedUserNames)
-    ? service.assignedUserNames.filter(Boolean)
-    : service.assignedUserName
-      ? [service.assignedUserName]
-      : []
-
-  return {
-    projectId: service.projectId || '',
-    serviceName: service.serviceName || '',
-    serviceCategory: service.serviceCategory || '',
-    chargeType: service.chargeType === 'free' ? 'free' : 'paid',
-    includeInFinancialPlanner: service.includeInFinancialPlanner !== false,
-    allocationMode: service.allocationMode === 'manual' ? 'manual' : 'auto',
-    manualAllocation: {
-      karimSalary: Number(service?.manualAllocation?.karimSalary)
-        ? String(Number(service.manualAllocation.karimSalary))
-        : '',
-      youssefSalary: Number(service?.manualAllocation?.youssefSalary)
-        ? String(Number(service.manualAllocation.youssefSalary))
-        : '',
-      agencyOperations: Number(service?.manualAllocation?.agencyOperations)
-        ? String(Number(service.manualAllocation.agencyOperations))
-        : '',
-      marketingSales: Number(service?.manualAllocation?.marketingSales)
-        ? String(Number(service.manualAllocation.marketingSales))
-        : '',
-    },
-    deliveryType: service.deliveryType === 'outsource' ? 'outsource' : 'inhouse',
-    assignedUserId: assignedUserIds[0] || service.assignedUserId || '',
-    assignedUserName: assignedUserNames[0] || service.assignedUserName || '',
-    assignedUserIds,
-    assignedUserNames,
-    outsourcePercentage: Number(service.outsourcePercentage)
-      ? String(Number(service.outsourcePercentage))
-      : '',
-    recurringOutsourcePercentage: Number(service.recurringOutsourcePercentage)
-      ? String(Number(service.recurringOutsourcePercentage))
-      : Number(service.outsourcePercentage)
-        ? String(Number(service.outsourcePercentage))
-        : '',
-    outsourceServiceFee: Number(service.outsourceServiceFee)
-      ? String(Number(service.outsourceServiceFee))
-      : '',
-    billingType,
-    paymentMode,
-    revenue: chargedRevenue ? String(chargedRevenue) : '',
-    oneTimeAmount: Number(service.oneTimeAmount) ? String(Number(service.oneTimeAmount)) : '',
-    monthlyAmount: Number(service.monthlyAmount) ? String(Number(service.monthlyAmount)) : '',
-    monthsCount: Number(service.monthsCount) ? String(Number(service.monthsCount)) : '1',
-    recurringOngoing: Boolean(service.recurringOngoing),
-    recurringStart: service.recurringStart || '',
-    recurringEnd: service.recurringEnd || '',
-    valueAmount: fallbackValue ? String(fallbackValue) : '',
-    paymentStatus: service.paymentStatus || 'pending',
-    websiteLinkName: service.websiteLinkName || '',
-    websiteLinkUrl: service.websiteLinkUrl || '',
-    paymentDate: service.paymentDate || '',
-    installments:
-      paymentMode === 'installments'
-        ? installments
-        : [createInstallment()],
-  }
-}
 
 export default function ProjectsPage() {
-  const { user, isAdmin, isPartner, serviceCategories, loading: authLoading } = useAuth()
+  const { user, profile, isAdmin, isPartner, serviceCategories, loading: authLoading } = useAuth()
   const hasFullFinancialAccess = isAdmin || isPartner
   const toast = useToast()
   const allowedCategorySet = useMemo(
@@ -351,48 +216,11 @@ export default function ProjectsPage() {
   }, [serviceSuccess, toast])
 
   const revenueBreakdownByProjectId = useMemo(() => {
-    return services.reduce((acc, service) => {
-      if (!acc[service.projectId]) {
-        acc[service.projectId] = {
-          totalContractValue: 0,
-          agencyShareTotal: 0,
-          inhouseRevenue: 0,
-          outsourceShare: 0,
-          outsourcePayout: 0,
-          freeValue: 0,
-        }
-      }
-
-      const bucket = acc[service.projectId]
-      const agencyRevenue = serviceAgencyShareValue(service)
-      const contractValue = serviceContractValue(service)
-      const trackedValue =
-        Number(service.valueAmount) || Number(service.totalContractValue) || contractValue
-
-      if (service.chargeType === 'free') {
-        bucket.freeValue += trackedValue
-      } else {
-        bucket.totalContractValue += contractValue
-        bucket.agencyShareTotal += agencyRevenue
-
-        if (service.deliveryType === 'outsource') {
-          bucket.outsourceShare += agencyRevenue
-          bucket.outsourcePayout += Math.max(contractValue - agencyRevenue, 0)
-        } else {
-          bucket.inhouseRevenue += agencyRevenue
-        }
-      }
-
-      return acc
-    }, {})
+    return buildRevenueBreakdownByProjectId(services, serviceAgencyShareValue, serviceContractValue)
   }, [services])
 
   const servicesByProjectId = useMemo(() => {
-    return services.reduce((acc, service) => {
-      if (!acc[service.projectId]) acc[service.projectId] = []
-      acc[service.projectId].push(service)
-      return acc
-    }, {})
+    return buildServicesByProjectId(services)
   }, [services])
 
   const availableServiceCategories = useMemo(() => {
@@ -422,116 +250,16 @@ export default function ProjectsPage() {
   }, [outsourceUsers, serviceAssigneeSearch])
 
   const visibleProjects = useMemo(() => {
-    const query = projectSearch.trim().toLowerCase()
-    const filtered = projects.filter((project) => {
-      const projectServices = servicesByProjectId[project.id] || []
-      const normalizedProjectType = normalizeProjectType(project.type || '')
-
-      if (projectStatusFilter !== 'all' && (project.status || '') !== projectStatusFilter) {
-        return false
-      }
-
-      if (projectTypeFilter !== 'all' && normalizedProjectType !== projectTypeFilter) {
-        return false
-      }
-
-      if (projectServiceCategoryFilter !== 'all') {
-        const hasCategory = projectServices.some(
-          (service) => String(service.serviceCategory || '').trim() === projectServiceCategoryFilter,
-        )
-        if (!hasCategory) return false
-      }
-
-      if (projectDeliveryFilter !== 'all') {
-        const hasInhouse = projectServices.some((service) => service.deliveryType !== 'outsource')
-        const hasOutsource = projectServices.some((service) => service.deliveryType === 'outsource')
-
-        const deliveryProfile = hasInhouse && hasOutsource
-          ? 'mix'
-          : hasOutsource
-            ? 'outsource'
-            : hasInhouse
-              ? 'inhouse'
-              : 'none'
-
-        if (deliveryProfile !== projectDeliveryFilter) return false
-      }
-
-      if (!query) return true
-
-      const haystack = [
-        project.projectName,
-        project.clientName,
-        project.projectType,
-        project.status,
-        normalizedProjectType,
-      ]
-        .map((value) => String(value || '').toLowerCase())
-        .join(' ')
-
-      return haystack.includes(query)
-    })
-
-    const timeValue = (value) => {
-      if (!value) return Number.NaN
-      const parsed = Date.parse(value)
-      return Number.isNaN(parsed) ? Number.NaN : parsed
-    }
-
-    const alpha = (value) => String(value || '').trim().toLowerCase()
-
-    return [...filtered].sort((left, right) => {
-      if (projectSort === 'name_asc') {
-        return alpha(left.projectName).localeCompare(alpha(right.projectName))
-      }
-
-      if (projectSort === 'name_desc') {
-        return alpha(right.projectName).localeCompare(alpha(left.projectName))
-      }
-
-      if (projectSort === 'deadline_asc') {
-        const leftTime = timeValue(left.deadline)
-        const rightTime = timeValue(right.deadline)
-        if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0
-        if (Number.isNaN(leftTime)) return 1
-        if (Number.isNaN(rightTime)) return -1
-        return leftTime - rightTime
-      }
-
-      if (projectSort === 'deadline_desc') {
-        const leftTime = timeValue(left.deadline)
-        const rightTime = timeValue(right.deadline)
-        if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0
-        if (Number.isNaN(leftTime)) return 1
-        if (Number.isNaN(rightTime)) return -1
-        return rightTime - leftTime
-      }
-
-      if (projectSort === 'agency_share_desc' || projectSort === 'agency_share_asc') {
-        const leftValue = Number(revenueBreakdownByProjectId[left.id]?.agencyShareTotal) || 0
-        const rightValue = Number(revenueBreakdownByProjectId[right.id]?.agencyShareTotal) || 0
-        return projectSort === 'agency_share_desc' ? rightValue - leftValue : leftValue - rightValue
-      }
-
-      if (projectSort === 'contract_value_desc' || projectSort === 'contract_value_asc') {
-        const leftValue = Number(revenueBreakdownByProjectId[left.id]?.totalContractValue) || 0
-        const rightValue = Number(revenueBreakdownByProjectId[right.id]?.totalContractValue) || 0
-        return projectSort === 'contract_value_desc' ? rightValue - leftValue : leftValue - rightValue
-      }
-
-      if (projectSort === 'outsource_share_desc' || projectSort === 'outsource_share_asc') {
-        const leftValue = Number(revenueBreakdownByProjectId[left.id]?.outsourcePayout) || 0
-        const rightValue = Number(revenueBreakdownByProjectId[right.id]?.outsourcePayout) || 0
-        return projectSort === 'outsource_share_desc' ? rightValue - leftValue : leftValue - rightValue
-      }
-
-      const leftTime = timeValue(left.updatedAt || left.createdAt || left.startDate)
-      const rightTime = timeValue(right.updatedAt || right.createdAt || right.startDate)
-      if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) return 0
-      if (Number.isNaN(leftTime)) return 1
-      if (Number.isNaN(rightTime)) return -1
-      if (projectSort === 'updated_asc') return leftTime - rightTime
-      return rightTime - leftTime
+    return buildVisibleProjects({
+      projects,
+      servicesByProjectId,
+      projectSearch,
+      projectStatusFilter,
+      projectTypeFilter,
+      projectServiceCategoryFilter,
+      projectDeliveryFilter,
+      projectSort,
+      revenueBreakdownByProjectId,
     })
   }, [
     projectDeliveryFilter,
@@ -1025,6 +753,19 @@ export default function ProjectsPage() {
         clientUserIds: linkedClientUserId ? [linkedClientUserId] : [],
       }
 
+      const existingProject = editingProjectId
+        ? projects.find((item) => item.id === editingProjectId)
+        : null
+      const fromStage = normalizeProjectLifecycleStage(existingProject?.lifecycle?.stage, existingProject?.status)
+      const toStage = resolveProjectLifecycleStage(projectPayload.status)
+      projectPayload.lifecycleTransition = {
+        nextStage: toStage,
+        actorId: user?.uid,
+        actorName: profile?.name || user?.displayName || user?.email || 'Admin',
+        reason: editingProjectId ? 'project_status_updated' : 'project_created',
+        sourcePortal: 'admin',
+      }
+
       let savedProjectId = editingProjectId
       if (editingProjectId) {
         await updateProject(editingProjectId, projectPayload)
@@ -1051,12 +792,30 @@ export default function ProjectsPage() {
 
       // Notification failure should not cancel successful project save.
       try {
-        await createNotification({
-          userId: user?.uid,
+        await emitWorkflowEvent({
+          eventType: 'project_lifecycle_transition',
+          user,
+          profile,
+          portal: 'admin',
           message: `Project saved: ${projectPayload.projectName}`,
-          status: 'unread',
-          date: new Date().toISOString(),
+          description: `${projectPayload.projectName} moved to ${toStage}.`,
+          metadata: {
+            projectName: projectPayload.projectName,
+            fromStage,
+            toStage,
+          },
         })
+
+        if (fromStage !== toStage) {
+          await emitProjectLifecycleTransitionEvent({
+            user,
+            profile,
+            projectName: projectPayload.projectName,
+            fromStage,
+            toStage,
+            portal: 'admin',
+          })
+        }
       } catch (notificationError) {
         console.warn('Project saved but notification failed:', notificationError)
       }
@@ -1151,13 +910,20 @@ export default function ProjectsPage() {
       }
 
       try {
-        await createNotification({
-          userId: user?.uid,
+        await emitWorkflowEvent({
+          eventType: 'milestone_approved',
+          user,
+          profile,
+          portal: 'admin',
           message: editingServiceId
             ? `Service updated: ${serviceForm.serviceName}`
             : `Service added: ${serviceForm.serviceName}`,
-          status: 'unread',
-          date: new Date().toISOString(),
+          description: `${serviceForm.serviceName} linked to project workflow and billing milestones.`,
+          metadata: {
+            serviceName: serviceForm.serviceName,
+            projectId: serviceForm.projectId,
+            billingType: serviceForm.billingType,
+          },
         })
       } catch (notificationError) {
         console.warn('Service saved but notification failed:', notificationError)
@@ -1510,6 +1276,7 @@ export default function ProjectsPage() {
         </span>
       }
       description="Manage client projects and services with one-time payments and monthly recurring plans (ongoing or until a specific date)."
+      variant="admin"
     >
       {!isAdmin ? (
         <p className="mb-4 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700">

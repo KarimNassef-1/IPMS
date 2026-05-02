@@ -105,7 +105,7 @@ export function getStatusConfig(status) {
 		case "blocked":
 			return {
 				label: "Blocked",
-				badge: "bg-rose-100 text-rose-700",
+				badge: "ip-sem-badge-blocked",
 				ring: "border-rose-300",
 			};
 		case "in_progress":
@@ -117,13 +117,13 @@ export function getStatusConfig(status) {
 		case "needs_review":
 			return {
 				label: "Needs Review",
-				badge: "bg-amber-100 text-amber-800",
+				badge: "ip-sem-badge-review",
 				ring: "border-amber-300",
 			};
 		case "completed":
 			return {
 				label: "Completed",
-				badge: "bg-emerald-100 text-emerald-700",
+				badge: "ip-sem-badge-approved",
 				ring: "border-emerald-300",
 			};
 		default:
@@ -136,11 +136,38 @@ export function getStatusConfig(status) {
 }
 
 export function nextTaskStatus(current) {
-	if (current === "not_started") return "in_progress";
-	if (current === "in_progress") return "needs_review";
-	if (current === "needs_review") return "completed";
-	if (current === "blocked") return "in_progress";
-	return "not_started";
+	return nextTaskStatusForRole(current, { isSupervisor: false });
+}
+
+export function getAllowedTaskTransitions(
+	current,
+	{ isSupervisor = false } = {},
+) {
+	switch (current) {
+		case "not_started":
+			return ["in_progress", "blocked"];
+		case "in_progress":
+			return ["needs_review", "blocked", "not_started"];
+		case "needs_review":
+			return isSupervisor
+				? ["completed", "in_progress", "blocked"]
+				: ["needs_review"];
+		case "blocked":
+			return ["in_progress", "not_started"];
+		case "completed":
+			return isSupervisor ? ["in_progress"] : ["completed"];
+		default:
+			return ["not_started"];
+	}
+}
+
+export function canTransitionTaskStatus(current, next, options = {}) {
+	return getAllowedTaskTransitions(current, options).includes(next);
+}
+
+export function nextTaskStatusForRole(current, options = {}) {
+	const [next] = getAllowedTaskTransitions(current, options);
+	return next || current;
 }
 
 export function getTaskDeadlineStatus(deadline, task) {
@@ -156,7 +183,7 @@ export function getTaskDeadlineStatus(deadline, task) {
 	if (daysLeft < 0) {
 		return {
 			badge: `${Math.abs(daysLeft)}d overdue`,
-			tone: "text-rose-600 bg-rose-50",
+			tone: "ip-sem-badge-overdue",
 		};
 	}
 	if (daysLeft === 0) {

@@ -15,17 +15,34 @@ import {
 import {
   buildPortalPayload,
   buildWorkspaceSummary,
+  canTransitionTaskStatus,
   getPhaseEndDate,
   getPhaseStartDate,
   getPortalViews,
   getTaskStatus,
   isTaskDone,
   makeId,
-  nextTaskStatus,
+  nextTaskStatusForRole,
   normalizePhaseOrder,
   parseDate,
 } from '../utils/outsourcePortalUtils'
-import { createNotification } from '../services/notificationService'
+import { emitWorkflowEvent } from '../services/workflowEvents'
+
+function createTaskAuditEntry({ actorId, actorName, action, note, metadata = {} }) {
+  return {
+    id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    actorId: String(actorId || '').trim(),
+    actorName: String(actorName || 'System').trim(),
+    action: String(action || 'updated').trim(),
+    note: String(note || '').trim(),
+    metadata: {
+      sourcePortal: 'outsource',
+      changedFields: Array.isArray(metadata?.changedFields) ? metadata.changedFields : [],
+      ...metadata,
+    },
+    createdAt: new Date().toISOString(),
+  }
+}
 
 export default function OutsourcePortalPage() {
   const { user, isAdmin, isPartner, profile } = useAuth()
@@ -377,14 +394,89 @@ export default function OutsourcePortalPage() {
 
   async function onSetTaskStatus(portal, phaseId, taskId) {
     let changedTask = null
+    const actorName = profile?.name || user?.displayName || user?.email || 'Team member'
     const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
       if (phase.id !== phaseId) return phase
 
       const nextTasks = (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
         if (task.id !== taskId) return task
         const current = getTaskStatus(task)
-        const next = nextTaskStatus(current)
-        changedTask = { ...task, status: next, completed: next === 'completed' }
+        const next = nextTaskStatusForRole(current, { isSupervisor })
+        if (!canTransitionTaskStatus(current, next, { isSupervisor })) {
+          return task
+        }
+
+        const existingReview = task?.review && typeof task.review === 'object' ? task.review : {}
+        const auditTrail = Array.isArray(task?.auditTrail) ? task.auditTrail : []
+        const baseTask = {
+          ...task,
+          status: next,
+          completed: next === 'completed',
+        }
+
+        if (!isSupervisor && next === 'needs_review') {
+          const submittedAt = new Date().toISOString()
+          const slaDue = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          changedTask = {
+            ...baseTask,
+            review: {
+              ...existingReview,
+              status: 'submitted',
+              submittedAt,
+              submittedById: user?.uid || '',
+              submittedByName: actorName,
+              slaDueAt: existingReview?.slaDueAt || slaDue,
+            },
+            auditTrail: [
+              ...auditTrail,
+              createTaskAuditEntry({
+                actorId: user?.uid,
+                actorName,
+                action: 'submitted_for_review',
+                note: 'Task submitted for supervisor approval.',
+              }),
+            ],
+          }
+          return changedTask
+        }
+
+        if (isSupervisor && next === 'completed') {
+          changedTask = {
+            ...baseTask,
+            review: {
+              ...existingReview,
+              status: 'approved',
+              reviewedAt: new Date().toISOString(),
+              reviewerId: user?.uid || '',
+              reviewerName: actorName,
+              rejectionReason: '',
+            },
+            auditTrail: [
+              ...auditTrail,
+              createTaskAuditEntry({
+                actorId: user?.uid,
+                actorName,
+                action: 'approved',
+                note: 'Task approved by supervisor.',
+              }),
+            ],
+          }
+          return changedTask
+        }
+
+        changedTask = {
+          ...baseTask,
+          auditTrail: [
+            ...auditTrail,
+            createTaskAuditEntry({
+              actorId: user?.uid,
+              actorName,
+              action: 'status_updated',
+              note: `Task moved to ${next}.`,
+              metadata: { from: current, to: next },
+            }),
+          ],
+        }
         return changedTask
       })
 
@@ -400,7 +492,6 @@ export default function OutsourcePortalPage() {
     await savePortalPhases(portal, nextPhases)
 
     if (changedTask && user?.uid) {
-      const actorName = profile?.name || user?.displayName || user?.email || 'Team member'
       const statusMessage =
         changedTask.status === 'needs_review'
           ? `${actorName} submitted task for review`
@@ -408,28 +499,26 @@ export default function OutsourcePortalPage() {
             ? `${actorName} marked a task as completed`
             : `${actorName} updated a task status`
 
-      createNotification({
-        userId: user.uid,
-        type: 'outsource',
-        action: 'outsource-task-status',
+      emitWorkflowEvent({
+        eventType: 'outsource_task_status_changed',
+        user,
+        profile,
+        portal: 'outsource',
         message: statusMessage,
         description: `${portal.projectName || 'Project'} • ${changedTask.name || 'Task'} • ${changedTask.status}`,
-        portalId: portal.id,
-        projectId: portal.projectId,
-        serviceId: portal.serviceId,
-        actorId: user.uid,
-        actorName,
-        actorEmail: user?.email || '',
-        actorPhotoURL: profile?.photoURL || '',
-        date: new Date().toISOString(),
-        status: 'unread',
-        adminFeed: true,
+        metadata: {
+          portalId: portal.id,
+          projectId: portal.projectId,
+          serviceId: portal.serviceId,
+          taskStatus: changedTask.status,
+        },
       }).catch(() => {})
     }
   }
 
   async function onToggleTaskBlocked(portal, phaseId, taskId) {
     let changedTask = null
+    const actorName = profile?.name || user?.displayName || user?.email || 'Team member'
     const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
       if (phase.id !== phaseId) return phase
 
@@ -444,6 +533,15 @@ export default function OutsourcePortalPage() {
               status: 'in_progress',
               blockedReason: '',
               completed: false,
+              auditTrail: [
+                ...(Array.isArray(task?.auditTrail) ? task.auditTrail : []),
+                createTaskAuditEntry({
+                  actorId: user?.uid,
+                  actorName,
+                  action: 'unblocked',
+                  note: 'Task was unblocked.',
+                }),
+              ],
             }
             return changedTask
           }
@@ -455,6 +553,15 @@ export default function OutsourcePortalPage() {
             status: 'blocked',
             blockedReason: String(blockedReason || '').trim(),
             completed: false,
+            auditTrail: [
+              ...(Array.isArray(task?.auditTrail) ? task.auditTrail : []),
+              createTaskAuditEntry({
+                actorId: user?.uid,
+                actorName,
+                action: 'blocked',
+                note: String(blockedReason || '').trim() || 'Task blocked without reason.',
+              }),
+            ],
           }
           return changedTask
         }),
@@ -464,27 +571,163 @@ export default function OutsourcePortalPage() {
     await savePortalPhases(portal, nextPhases)
 
     if (changedTask && user?.uid) {
-      const actorName = profile?.name || user?.displayName || user?.email || 'Team member'
-      createNotification({
-        userId: user.uid,
-        type: 'outsource',
-        action: 'outsource-task-blocked-toggle',
+      emitWorkflowEvent({
+        eventType: 'outsource_task_status_changed',
+        user,
+        profile,
+        portal: 'outsource',
         message:
           changedTask.status === 'blocked'
             ? `${actorName} flagged a blocked task`
             : `${actorName} unblocked a task`,
         description: `${portal.projectName || 'Project'} • ${changedTask.name || 'Task'}`,
-        portalId: portal.id,
-        projectId: portal.projectId,
-        serviceId: portal.serviceId,
-        actorId: user.uid,
-        actorName,
-        actorEmail: user?.email || '',
-        actorPhotoURL: profile?.photoURL || '',
-        date: new Date().toISOString(),
-        status: 'unread',
-        adminFeed: true,
+        metadata: {
+          portalId: portal.id,
+          projectId: portal.projectId,
+          serviceId: portal.serviceId,
+          taskStatus: changedTask.status,
+        },
       }).catch(() => {})
+    }
+  }
+
+  async function onApproveTask(portal, phaseId, taskId) {
+    if (!isSupervisor) return
+    let changedTask = null
+    const actorName = profile?.name || user?.displayName || user?.email || 'Supervisor'
+
+    const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
+      if (phase.id !== phaseId) return phase
+      return {
+        ...phase,
+        tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
+          if (task.id !== taskId) return task
+          const current = getTaskStatus(task)
+          if (current !== 'needs_review') return task
+          changedTask = {
+            ...task,
+            status: 'completed',
+            completed: true,
+            review: {
+              ...(task?.review && typeof task.review === 'object' ? task.review : {}),
+              status: 'approved',
+              reviewedAt: new Date().toISOString(),
+              reviewerId: user?.uid || '',
+              reviewerName: actorName,
+              rejectionReason: '',
+            },
+            auditTrail: [
+              ...(Array.isArray(task?.auditTrail) ? task.auditTrail : []),
+              createTaskAuditEntry({
+                actorId: user?.uid,
+                actorName,
+                action: 'approved',
+                note: 'Task approved by supervisor gate.',
+              }),
+            ],
+          }
+          return changedTask
+        }),
+      }
+    })
+
+    await savePortalPhases(portal, nextPhases)
+    if (changedTask) {
+      toast.success('Task approved and moved to completed.')
+    }
+  }
+
+  async function onRejectTask(portal, phaseId, taskId) {
+    if (!isSupervisor) return
+    const rejectionReason = String(window.prompt('Rejection reason (required):') || '').trim()
+    if (!rejectionReason) {
+      toast.error('Rejection reason is required.')
+      return
+    }
+
+    let changedTask = null
+    const actorName = profile?.name || user?.displayName || user?.email || 'Supervisor'
+    const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
+      if (phase.id !== phaseId) return phase
+      return {
+        ...phase,
+        tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
+          if (task.id !== taskId) return task
+          const current = getTaskStatus(task)
+          if (current !== 'needs_review') return task
+          changedTask = {
+            ...task,
+            status: 'in_progress',
+            completed: false,
+            review: {
+              ...(task?.review && typeof task.review === 'object' ? task.review : {}),
+              status: 'rejected',
+              reviewedAt: new Date().toISOString(),
+              reviewerId: user?.uid || '',
+              reviewerName: actorName,
+              rejectionReason,
+            },
+            auditTrail: [
+              ...(Array.isArray(task?.auditTrail) ? task.auditTrail : []),
+              createTaskAuditEntry({
+                actorId: user?.uid,
+                actorName,
+                action: 'rejected',
+                note: rejectionReason,
+              }),
+            ],
+          }
+          return changedTask
+        }),
+      }
+    })
+
+    await savePortalPhases(portal, nextPhases)
+    if (changedTask) {
+      toast.success('Task sent back to in progress with rejection reason.')
+    }
+  }
+
+  async function onEscalateTask(portal, phaseId, taskId) {
+    if (!isSupervisor) return
+    const escalationReason = String(window.prompt('Escalation reason (optional):') || '').trim()
+    let changedTask = null
+    const actorName = profile?.name || user?.displayName || user?.email || 'Supervisor'
+
+    const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
+      if (phase.id !== phaseId) return phase
+      return {
+        ...phase,
+        tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
+          if (task.id !== taskId) return task
+          const currentReview = task?.review && typeof task.review === 'object' ? task.review : {}
+          const level = Math.max(Number(currentReview.escalationLevel) || 0, 0) + 1
+          changedTask = {
+            ...task,
+            review: {
+              ...currentReview,
+              escalationLevel: level,
+              escalationReason,
+            },
+            auditTrail: [
+              ...(Array.isArray(task?.auditTrail) ? task.auditTrail : []),
+              createTaskAuditEntry({
+                actorId: user?.uid,
+                actorName,
+                action: 'escalated',
+                note: escalationReason || 'Escalated without reason.',
+                metadata: { escalationLevel: level },
+              }),
+            ],
+          }
+          return changedTask
+        }),
+      }
+    })
+
+    await savePortalPhases(portal, nextPhases)
+    if (changedTask) {
+      toast.success('Task escalated for response accountability.')
     }
   }
 
@@ -636,9 +879,33 @@ export default function OutsourcePortalPage() {
 
   return (
     <ModuleShell
-      title="Work Hub"
-      description="Monitor timelines, follow delivery progress, and manage assigned work across all active services."
+      title="Execution Hub"
+      description="What I need to do now: clear blockers, submit reviews, and keep delivery on schedule."
+      variant="outsource"
     >
+      <section className="ip-section-band ip-role-highlight grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Do Now</p>
+          <p className="mt-1 text-2xl font-black text-sky-800">{workspaceSummary.openTasks}</p>
+          <p className="text-xs text-slate-500">open tasks in your active execution queue</p>
+        </article>
+        <article className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-rose-700">Blocked</p>
+          <p className="mt-1 text-2xl font-black text-rose-800">{workspaceSummary.blockedTasks}</p>
+          <p className="text-xs text-rose-700">requires unblock action or escalation</p>
+        </article>
+        <article className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700">Needs Review</p>
+          <p className="mt-1 text-2xl font-black text-amber-800">{workspaceSummary.inReviewTasks}</p>
+          <p className="text-xs text-amber-700">waiting for supervisor decision</p>
+        </article>
+        <article className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">Done</p>
+          <p className="mt-1 text-2xl font-black text-emerald-800">{workspaceSummary.totalTasks - workspaceSummary.openTasks}</p>
+          <p className="text-xs text-emerald-700">completed tasks across your workspace</p>
+        </article>
+      </section>
+
       <WorkHubStatsStrip isSupervisor={isSupervisor} workspaceSummary={workspaceSummary} />
 
       <div className="mt-6 flex gap-7">
@@ -720,6 +987,9 @@ export default function OutsourcePortalPage() {
             onAddPhase={onAddPhase}
             onTogglePhaseCompletion={onTogglePhaseCompletion}
             onDeleteAssignment={onDeleteAssignment}
+            onApproveTask={onApproveTask}
+            onRejectTask={onRejectTask}
+            onEscalateTask={onEscalateTask}
           />
         ))}
         </section>

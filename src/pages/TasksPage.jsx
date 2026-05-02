@@ -16,7 +16,7 @@ import {
   updateTask,
 } from '../services/taskService'
 import { TASK_PRIORITIES, TASK_STATUSES } from '../utils/constants'
-import { createNotification } from '../services/notificationService'
+import { emitWorkflowEvent } from '../services/workflowEvents'
 import { useAuth } from '../hooks/useAuth'
 import { getAllUsers } from '../services/teamUsersService'
 import { useToast } from '../hooks/useToast'
@@ -25,7 +25,7 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10)
 }
 
-export default function TasksPage() {
+export default function TasksPage({ focusMode = 'all' }) {
   const { user, role, isAdmin, hasAccess, profile, loading: authLoading } = useAuth()
   const toast = useToast()
   const [tasks, setTasks] = useState([])
@@ -59,19 +59,23 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (authLoading || !user?.uid) return
-    const unsubscribeTasks = subscribeTasks(setTasks, () => {
-      setStatusMessage('Failed to keep tasks in sync in real time.')
-    })
-    const unsubscribeDailyTasks = subscribeDailyTasks(setAllDailyTasks, () => {
-      setStatusMessage('Failed to keep daily tasks in sync in real time.')
-    })
+    const unsubscribeTasks = showRegularTasks
+      ? subscribeTasks(setTasks, () => {
+          setStatusMessage('Failed to keep tasks in sync in real time.')
+        })
+      : () => {}
+    const unsubscribeDailyTasks = showDailyTasks
+      ? subscribeDailyTasks(setAllDailyTasks, () => {
+          setStatusMessage('Failed to keep daily tasks in sync in real time.')
+        })
+      : () => {}
     loadUsers()
 
     return () => {
       unsubscribeTasks()
       unsubscribeDailyTasks()
     }
-  }, [authLoading, user?.uid])
+  }, [authLoading, showDailyTasks, showRegularTasks, user?.uid])
 
   useEffect(() => {
     if (!statusMessage) return
@@ -132,6 +136,8 @@ export default function TasksPage() {
   }, [tasks])
 
   const canViewDailyTasks = isAdmin || hasAccess('dailyTasks')
+  const showRegularTasks = focusMode !== 'daily'
+  const showDailyTasks = canViewDailyTasks && focusMode !== 'regular'
 
   const today = todayKey()
 
@@ -206,18 +212,13 @@ export default function TasksPage() {
       assignedUserIds: [assigneeId],
       assignedUserNames: [assigneeNameById[assigneeId] || form.assignedTo || 'User'],
     })
-    await createNotification({
-      userId: user?.uid,
-      type: 'task',
-      action: 'task_created',
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      user,
+      profile,
+      portal: 'admin',
       message: `Task created: ${form.name}`,
-      actorId: user?.uid || '',
-      actorName: profile?.name || 'User',
-      actorEmail: user?.email || '',
-      actorPhotoURL: profile?.photoURL || '',
-      date: new Date().toISOString(),
-      status: 'unread',
-      adminFeed: true,
+      metadata: { taskAction: 'created' },
     })
     setForm({
       name: '',
@@ -238,18 +239,13 @@ export default function TasksPage() {
 
     setStatusMessage('')
     await updateTask(task.id, { status })
-    await createNotification({
-      userId: user?.uid,
-      type: 'task',
-      action: 'task_status_changed',
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      user,
+      profile,
+      portal: 'admin',
       message: `Task status updated: ${task.name} -> ${status}`,
-      actorId: user?.uid || '',
-      actorName: profile?.name || 'User',
-      actorEmail: user?.email || '',
-      actorPhotoURL: profile?.photoURL || '',
-      date: new Date().toISOString(),
-      status: 'unread',
-      adminFeed: true,
+      metadata: { taskAction: 'status_changed' },
     })
     await loadTasks()
   }
@@ -269,18 +265,13 @@ export default function TasksPage() {
 
     setStatusMessage('')
     await deleteTask(taskId)
-    await createNotification({
-      userId: user?.uid,
-      type: 'task',
-      action: 'task_deleted',
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      user,
+      profile,
+      portal: 'admin',
       message: `Task deleted: ${task.name}`,
-      actorId: user?.uid || '',
-      actorName: profile?.name || 'User',
-      actorEmail: user?.email || '',
-      actorPhotoURL: profile?.photoURL || '',
-      date: new Date().toISOString(),
-      status: 'unread',
-      adminFeed: true,
+      metadata: { taskAction: 'deleted' },
     })
     await loadTasks()
     toast.notify(`Deleted task: ${task.name || 'Task'}`, {
@@ -314,12 +305,12 @@ export default function TasksPage() {
     }
 
     setStatusMessage('')
-    await createNotification({
-      userId: assigneeId,
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      targetUserId: assigneeId,
+      portal: 'admin',
       message: `Task update from system: ${task.name} (${task.status || 'Pending'})`,
-      date: new Date().toISOString(),
-      status: 'unread',
-      source: 'system',
+      metadata: { taskAction: 'assignee_notify', source: 'system' },
     })
     setStatusMessage('Notification sent to assignee.')
   }
@@ -349,11 +340,13 @@ export default function TasksPage() {
       isCompleted: false,
       locked: false,
     })
-    await createNotification({
-      userId: user?.uid,
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      user,
+      profile,
+      portal: 'admin',
       message: `Daily task created: ${dailyForm.name}`,
-      date: new Date().toISOString(),
-      status: 'unread',
+      metadata: { taskAction: 'daily_created' },
     })
     setDailyForm({
       name: '',
@@ -388,18 +381,13 @@ export default function TasksPage() {
 
     setStatusMessage('')
     await deleteDailyTask(taskId)
-    await createNotification({
-      userId: user?.uid,
-      type: 'daily_task',
-      action: 'daily_task_deleted',
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      user,
+      profile,
+      portal: 'admin',
       message: `Daily task deleted: ${task.name}`,
-      actorId: user?.uid || '',
-      actorName: profile?.name || 'User',
-      actorEmail: user?.email || '',
-      actorPhotoURL: profile?.photoURL || '',
-      date: new Date().toISOString(),
-      status: 'unread',
-      adminFeed: true,
+      metadata: { taskAction: 'daily_deleted' },
     })
     await loadDailyTasks()
     toast.notify(`Deleted daily task: ${task.name || 'Task'}`, {
@@ -438,12 +426,12 @@ export default function TasksPage() {
 
     const stateLabel = task?.isCompleted ? 'Completed' : 'Pending'
     setStatusMessage('')
-    await createNotification({
-      userId: assigneeId,
+    await emitWorkflowEvent({
+      eventType: 'outsource_task_status_changed',
+      targetUserId: assigneeId,
+      portal: 'admin',
       message: `Daily task update from system: ${task.name} (${stateLabel})`,
-      date: new Date().toISOString(),
-      status: 'unread',
-      source: 'system',
+      metadata: { taskAction: 'daily_assignee_notify', source: 'system' },
     })
     setStatusMessage('Notification sent to assignee.')
   }
@@ -476,9 +464,15 @@ export default function TasksPage() {
 
   return (
     <ModuleShell
-      title="Tasks"
-      description="Track regular tasks with assignment, priority, deadline, and progress status."
+      title={focusMode === 'daily' ? 'Daily Tasks' : 'Tasks'}
+      description={
+        focusMode === 'daily'
+          ? 'Track daily execution checklists by assignee with history and completion status.'
+          : 'Track regular tasks with assignment, priority, deadline, and progress status.'
+      }
     >
+      {showRegularTasks ? (
+        <>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="ip-stat-card">
           <p className="text-xs uppercase tracking-wider text-slate-500">Total Tasks</p>
@@ -608,8 +602,10 @@ export default function TasksPage() {
         ))}
         {tasks.length === 0 ? <p className="text-sm text-slate-600">No tasks yet.</p> : null}
       </div>
+        </>
+      ) : null}
 
-      {canViewDailyTasks ? (
+      {showDailyTasks ? (
         <>
           <div className="mt-10 grid gap-6 lg:grid-cols-3">
             <form onSubmit={submitDailyTask} className="space-y-3 rounded-2xl border border-white/30 bg-white/80 p-4">

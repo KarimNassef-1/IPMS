@@ -12,7 +12,7 @@ export default function WorkHubViewSidebar({ isSupervisor, portalViews, activeVi
             onClick={() => onChangeView(view.id)}
             className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${
               activeView === view.id
-                ? 'bg-violet-600 text-white'
+                ? 'bg-sky-700 text-white'
                 : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
             }`}
           >

@@ -7,6 +7,18 @@
 	--ip-primary-soft: #f0e9ff;
 	--ip-surface-glass: rgba(255, 255, 255, 0.7);
 	--ip-border-soft: rgba(148, 163, 184, 0.2);
+	--ip-sem-blocked-bg: #ffe8ec;
+	--ip-sem-blocked-text: #be123c;
+	--ip-sem-review-bg: #fff7db;
+	--ip-sem-review-text: #a16207;
+	--ip-sem-approved-bg: #dcfce7;
+	--ip-sem-approved-text: #166534;
+	--ip-sem-overdue-bg: #fee2e2;
+	--ip-sem-overdue-text: #b91c1c;
+	--ip-sem-paid-bg: #e0f2fe;
+	--ip-sem-paid-text: #075985;
+	--ip-sem-delivered-bg: #ecfdf3;
+	--ip-sem-delivered-text: #047857;
 }
 
 * {
@@ -125,6 +137,106 @@ a {
 	background: rgba(255, 255, 255, 0.92);
 	box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.45);
 	padding: 0.9rem;
+}
+
+.ip-section-band {
+	border: 1px solid rgba(203, 213, 225, 0.75);
+	border-radius: 1.1rem;
+	background: #f8fafc;
+	padding: 0.9rem;
+}
+
+.ip-sticky-rail {
+	position: sticky;
+	top: 5.5rem;
+}
+
+.ip-progressive-panel {
+	border: 1px solid rgba(226, 232, 240, 0.9);
+	border-radius: 1rem;
+	background: rgba(255, 255, 255, 0.9);
+	overflow: hidden;
+}
+
+.ip-progressive-panel > summary {
+	cursor: pointer;
+	list-style: none;
+	padding: 0.75rem 0.9rem;
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
+	color: #475569;
+	background: #f8fafc;
+}
+
+.ip-progressive-panel > summary::-webkit-details-marker {
+	display: none;
+}
+
+.ip-progressive-panel > .ip-progressive-body {
+	padding: 0.85rem;
+}
+
+.ip-sem-badge-blocked {
+	background: var(--ip-sem-blocked-bg);
+	color: var(--ip-sem-blocked-text);
+}
+
+.ip-sem-badge-review {
+	background: var(--ip-sem-review-bg);
+	color: var(--ip-sem-review-text);
+}
+
+.ip-sem-badge-approved {
+	background: var(--ip-sem-approved-bg);
+	color: var(--ip-sem-approved-text);
+}
+
+.ip-sem-badge-overdue {
+	background: var(--ip-sem-overdue-bg);
+	color: var(--ip-sem-overdue-text);
+}
+
+.ip-sem-badge-paid {
+	background: var(--ip-sem-paid-bg);
+	color: var(--ip-sem-paid-text);
+}
+
+.ip-sem-badge-delivered {
+	background: var(--ip-sem-delivered-bg);
+	color: var(--ip-sem-delivered-text);
+}
+
+.ip-role-admin .ip-shell-title {
+	color: #0f172a;
+}
+
+.ip-role-admin .ip-surface-section {
+	background: #ffffff;
+	box-shadow: 0 10px 22px -24px rgba(15, 23, 42, 0.9);
+}
+
+.ip-role-outsource .ip-shell-title {
+	color: #0c4a6e;
+}
+
+.ip-role-outsource .ip-role-highlight {
+	background: linear-gradient(
+		135deg,
+		rgba(14, 165, 233, 0.1),
+		rgba(251, 191, 36, 0.08)
+	);
+	border-color: rgba(14, 116, 144, 0.22);
+}
+
+.ip-role-client .ip-shell-title {
+	color: #155e75;
+}
+
+.ip-role-client .ip-surface-section {
+	background: #fefefe;
+	box-shadow: 0 10px 22px -26px rgba(15, 23, 42, 0.55);
 }
 
 .ip-table-wrap {

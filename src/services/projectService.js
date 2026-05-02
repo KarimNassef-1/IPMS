@@ -14,6 +14,13 @@ import {
 import { ensureFirebaseReady } from "./firebase";
 import { assertRequiredFields } from "../utils/helpers";
 import { normalizeServiceCategory } from "../utils/serviceAccess";
+import { estimateRecurringMonths } from "../utils/serviceFinance";
+import {
+	applyProjectLifecycleTransition,
+	deriveProjectLifecycleFromPayload,
+} from "../utils/workflowLifecycle";
+import { createMilestoneObject } from "../domain/workflow/canonicalWorkflow";
+import { refreshAgencyOverviewSummary } from "./summaryService";
 
 const PROJECTS = "projects";
 const SERVICES = "services";
@@ -70,6 +77,11 @@ function normalizeProjectPayload(payload) {
 		),
 	);
 
+	const lifecycleBase = deriveProjectLifecycleFromPayload(payload);
+	const lifecycle = payload?.lifecycleTransition
+		? applyProjectLifecycleTransition(payload, payload.lifecycleTransition)
+		: lifecycleBase;
+
 	return {
 		...payload,
 		clientName,
@@ -77,6 +89,7 @@ function normalizeProjectPayload(payload) {
 		clientEmails,
 		clientUserId: clientUserIds[0] || "",
 		clientUserIds,
+		lifecycle,
 	};
 }
 
@@ -98,24 +111,78 @@ function normalizeInstallments(installments) {
 		.map(({ index, ...item }) => ({ id: String(index + 1), ...item }));
 }
 
-function calculateMonthsBetween(startDate, endDate) {
-	if (!startDate || !endDate) return 0;
-
-	const start = new Date(startDate);
-	const end = new Date(endDate);
-	if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-	if (end < start) return 0;
-
-	const yearDiff = end.getFullYear() - start.getFullYear();
-	const monthDiff = end.getMonth() - start.getMonth();
-	let totalMonths = yearDiff * 12 + monthDiff + 1;
-
-	// If ending day is before starting day, do not count the current month as complete.
-	if (end.getDate() < start.getDate()) {
-		totalMonths -= 1;
+function normalizeMilestones(payload, context) {
+	if (Array.isArray(payload?.milestones) && payload.milestones.length) {
+		return payload.milestones
+			.map((milestone, index) => ({
+				...createMilestoneObject(milestone, index),
+				slaTargetHours: Math.max(Number(milestone?.slaTargetHours) || 24, 1),
+				slaDueAt: safeText(milestone?.slaDueAt),
+			}))
+			.filter((milestone) => milestone.name);
 	}
 
-	return Math.max(totalMonths, 0);
+	const generated = [];
+	if (Array.isArray(context?.installments) && context.installments.length) {
+		for (const installment of context.installments) {
+			generated.push(
+				createMilestoneObject(
+					{
+						id: safeText(installment.id, `inst_${generated.length + 1}`),
+						name: `Installment ${generated.length + 1}`,
+						dueDate: safeText(installment.dueDate),
+						amount: money(installment.amount),
+						status:
+							safeTextLower(installment.status) === "paid"
+								? "approved"
+								: "pending",
+						slaTargetHours: 24,
+						slaDueAt: "",
+					},
+					generated.length,
+				),
+			);
+		}
+	}
+
+	if (!generated.length && Number(context?.oneTimeTotal) > 0) {
+		generated.push(
+			createMilestoneObject(
+				{
+					id: "one_time_delivery",
+					name: "One-time delivery",
+					dueDate: safeText(payload?.paymentDate),
+					amount: money(context.oneTimeTotal),
+					status:
+						safeTextLower(payload?.paymentStatus) === "paid"
+							? "approved"
+							: "pending",
+					slaTargetHours: 24,
+					slaDueAt: "",
+				},
+				0,
+			),
+		);
+	}
+
+	if (Number(context?.monthlyTotal) > 0) {
+		generated.push(
+			createMilestoneObject(
+				{
+					id: "monthly_delivery",
+					name: "Recurring delivery",
+					dueDate: safeText(payload?.recurringEnd || payload?.paymentDate),
+					amount: money(context.monthlyTotal),
+					status: "pending",
+					slaTargetHours: 24,
+					slaDueAt: "",
+				},
+				generated.length,
+			),
+		);
+	}
+
+	return generated;
 }
 
 function normalizeWebsiteUrl(value) {
@@ -236,11 +303,12 @@ function normalizeServicePayload(payload) {
 		hasMonthlyPart && !recurringOngoing ? payload.recurringEnd || "" : "";
 	const monthsCount = hasMonthlyPart
 		? recurringOngoing
-			? calculateMonthsBetween(
+			? estimateRecurringMonths(
 					recurringStart,
 					new Date().toISOString().slice(0, 10),
+					false,
 				)
-			: calculateMonthsBetween(recurringStart, recurringEnd)
+			: estimateRecurringMonths(recurringStart, recurringEnd, false)
 		: 0;
 	const recurringOutsourcePercentage = hasMonthlyPart
 		? Math.min(
@@ -280,6 +348,11 @@ function normalizeServicePayload(payload) {
 			: 0;
 	const valueAmount = grossAmount;
 	const chargedRevenue = deliveryType === "outsource" ? agencyShare : planTotal;
+	const milestones = normalizeMilestones(payload, {
+		installments,
+		oneTimeTotal,
+		monthlyTotal,
+	});
 
 	return {
 		...payload,
@@ -310,6 +383,11 @@ function normalizeServicePayload(payload) {
 		valueAmount,
 		totalContractValue: valueAmount,
 		revenue: chargedRevenue,
+		milestones,
+		billingWorkflow: {
+			strictMilestoneBilling: true,
+			invoiceTrigger: "milestone_approved",
+		},
 		paymentStatus,
 		websiteLinkName,
 		websiteLinkUrl,
@@ -330,9 +408,11 @@ export async function createProject(payload) {
 	const data = {
 		...normalizedPayload,
 		createdAt: new Date().toISOString(),
+		updatedAt: new Date().toISOString(),
 	};
 
 	const ref = await addDoc(collection(firestore, PROJECTS), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 	return { id: ref.id, ...data };
 }
 
@@ -395,13 +475,18 @@ export async function updateProject(id, payload) {
 	const normalizedPayload = normalizeProjectPayload(payload);
 
 	const ref = doc(firestore, PROJECTS, id);
-	await updateDoc(ref, normalizedPayload);
+	await updateDoc(ref, {
+		...normalizedPayload,
+		updatedAt: new Date().toISOString(),
+	});
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteProject(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, PROJECTS, id));
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function restoreProject(payload) {
@@ -410,6 +495,7 @@ export async function restoreProject(payload) {
 	if (!id) throw new Error("Project id is required to restore project.");
 	const { id: _id, ...data } = payload;
 	await setDoc(doc(firestore, PROJECTS, id), data, { merge: false });
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function addServiceToProject(payload) {
@@ -428,6 +514,7 @@ export async function addServiceToProject(payload) {
 	};
 
 	const ref = await addDoc(collection(firestore, SERVICES), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 	return { id: ref.id, ...data };
 }
 
@@ -508,12 +595,14 @@ export async function updateService(id, payload) {
 		...normalizedPayload,
 		updatedAt: new Date().toISOString(),
 	});
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteService(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, SERVICES, id));
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function restoreService(payload) {
@@ -522,4 +611,5 @@ export async function restoreService(payload) {
 	if (!id) throw new Error("Service id is required to restore service.");
 	const { id: _id, ...data } = payload;
 	await setDoc(doc(firestore, SERVICES, id), data, { merge: false });
+	refreshAgencyOverviewSummary().catch(() => {});
 }

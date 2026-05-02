@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { ensureFirebaseReady } from "./firebase";
 import { assertRequiredFields } from "../utils/helpers";
+import { refreshAgencyOverviewSummary } from "./summaryService";
 
 const TASKS = "tasks";
 const DAILY_TASKS = "daily_tasks";
@@ -59,6 +60,7 @@ export async function createTask(payload) {
 	};
 
 	const ref = await addDoc(collection(firestore, TASKS), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 	return { id: ref.id, ...data };
 }
 
@@ -97,12 +99,14 @@ export async function updateTask(id, payload) {
 	const firestore = ensureFirebaseReady();
 
 	await updateDoc(doc(firestore, TASKS, id), payload);
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteTask(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, TASKS, id));
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function restoreTask(payload) {
@@ -111,6 +115,7 @@ export async function restoreTask(payload) {
 	if (!id) throw new Error("Task id is required to restore task.");
 	const { id: _id, ...data } = payload;
 	await setDoc(doc(firestore, TASKS, id), data, { merge: false });
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function createDailyTask(payload) {
@@ -130,6 +135,7 @@ export async function createDailyTask(payload) {
 	};
 
 	const ref = await addDoc(collection(firestore, DAILY_TASKS), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 	return { id: ref.id, ...data };
 }
 
@@ -159,18 +165,21 @@ export async function toggleDailyTask(id, isCompleted) {
 	};
 
 	await updateDoc(doc(firestore, DAILY_TASKS, id), payload);
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function updateDailyTask(id, payload) {
 	const firestore = ensureFirebaseReady();
 
 	await updateDoc(doc(firestore, DAILY_TASKS, id), payload);
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteDailyTask(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, DAILY_TASKS, id));
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function restoreDailyTask(payload) {
@@ -179,4 +188,5 @@ export async function restoreDailyTask(payload) {
 	if (!id) throw new Error("Daily task id is required to restore daily task.");
 	const { id: _id, ...data } = payload;
 	await setDoc(doc(firestore, DAILY_TASKS, id), data, { merge: false });
+	refreshAgencyOverviewSummary().catch(() => {});
 }

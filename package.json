@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "auth:cleanup:requests": "node scripts/process-auth-cleanup-requests.mjs",
     "auth:cleanup:worker": "node scripts/run-auth-cleanup-worker.mjs",
-    "audit:orphans": "node scripts/audit-orphan-users-data.mjs"
+    "audit:orphans": "node scripts/audit-orphan-users-data.mjs",
+    "auth:lifecycle:worker": "node scripts/run-auth-lifecycle-worker.mjs"
   },
   "dependencies": {
     "firebase": "^12.12.0",

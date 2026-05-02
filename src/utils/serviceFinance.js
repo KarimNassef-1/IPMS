@@ -17,6 +17,16 @@ export function estimateRecurringMonths(startDate, endDate, recurringOngoing) {
 	return Math.max(totalMonths, 0);
 }
 
+export function normalizeServicePaymentStatus(status) {
+	const normalized = String(status || "")
+		.trim()
+		.toLowerCase();
+	if (["pending", "paid", "completed", "free"].includes(normalized)) {
+		return normalized;
+	}
+	return "pending";
+}
+
 export function serviceContractValue(service) {
 	if (!service || service.chargeType === "free") return 0;
 
@@ -285,4 +295,20 @@ export function calculateServiceRecognizedPaidRevenue(service) {
 	}
 
 	return Math.min(recognizedGross, totalAgencyShare);
+}
+
+export function getServiceFinancialSnapshot(service) {
+	const contractValue = Math.max(serviceContractValue(service), 0);
+	const agencyShare = Math.max(serviceAgencyShareValue(service), 0);
+	const recognizedPaid = Math.max(
+		calculateServiceRecognizedPaidRevenue(service),
+		0,
+	);
+
+	return {
+		contractValue,
+		agencyShare,
+		recognizedPaid,
+		pendingShare: Math.max(agencyShare - recognizedPaid, 0),
+	};
 }

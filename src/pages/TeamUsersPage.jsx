@@ -31,48 +31,20 @@ import {
 } from '../utils/helpers'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../hooks/useAuth'
-
-const EMPTY_USER_FORM = {
-  name: '',
-  phoneNumber: '',
-  role: 'outsource',
-  photoURL: '',
-  title: '',
-  teamIds: [],
-  websiteTracks: [],
-  outsourceServices: [],
-}
-
-const EMPTY_TEAM_FORM = {
-  name: '',
-  serviceCategories: [SERVICE_CATEGORIES[0]],
-  description: '',
-  memberIds: [],
-  memberProfiles: [],
-}
-
-const EMPTY_TEAM_MEMBER_DRAFT = {
-  name: '',
-  technicalRole: '',
-  websiteTracks: [],
-  pictureUrl: '',
-  linkedUserId: '',
-}
+import {
+  buildTeamNameById,
+  buildUserById,
+  buildUserNameById,
+  EMPTY_TEAM_FORM,
+  EMPTY_TEAM_MEMBER_DRAFT,
+  EMPTY_USER_FORM,
+  createTeamMemberId,
+  filterTeams,
+  filterUsers,
+  fileToDataUrl,
+} from './teamUsers/teamUsersPageModel'
 
 const ROLE_ACCESS_MATRIX_ROLES = APP_ROLES
-
-function createTeamMemberId() {
-  return `member_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('Failed to read selected image file.'))
-    reader.readAsDataURL(file)
-  })
-}
 
 export default function TeamUsersPage() {
   const toast = useToast()
@@ -150,26 +122,17 @@ export default function TeamUsersPage() {
   }, [])
 
   const userNameById = useMemo(
-    () => users.reduce((acc, item) => {
-      acc[item.id] = item.name || 'Unknown user'
-      return acc
-    }, {}),
+    () => buildUserNameById(users),
     [users],
   )
 
   const userById = useMemo(
-    () => users.reduce((acc, item) => {
-      acc[item.id] = item
-      return acc
-    }, {}),
+    () => buildUserById(users),
     [users],
   )
 
   const teamNameById = useMemo(
-    () => teams.reduce((acc, item) => {
-      acc[item.id] = item.name || 'Team'
-      return acc
-    }, {}),
+    () => buildTeamNameById(teams),
     [teams],
   )
 
@@ -179,51 +142,11 @@ export default function TeamUsersPage() {
   }, [])
 
   const filteredUsers = useMemo(() => {
-    const query = String(userSearchTerm || '').trim().toLowerCase()
-    const source = Array.isArray(users) ? users : []
-
-    return source
-      .filter((item) => {
-        if (!query) return true
-        const haystack = [
-          item.name,
-          item.phoneNumber,
-          item.role,
-          item.title,
-          ...(Array.isArray(item.websiteTracks) ? item.websiteTracks : []),
-          ...(Array.isArray(item.teamIds) ? item.teamIds.map((teamId) => teamNameById[teamId] || teamId) : []),
-        ]
-          .map((value) => String(value || '').toLowerCase())
-          .join(' ')
-        return haystack.includes(query)
-      })
-        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+    return filterUsers(users, userSearchTerm, teamNameById)
   }, [teamNameById, userSearchTerm, users])
 
   const filteredTeams = useMemo(() => {
-    const query = String(teamSearchTerm || '').trim().toLowerCase()
-    const source = Array.isArray(teams) ? teams : []
-
-    return source
-      .filter((team) => {
-        const categories = Array.isArray(team.serviceCategories)
-          ? team.serviceCategories
-          : [team.serviceCategory || team.serviceType].filter(Boolean)
-
-        if (teamServiceFilter !== 'all' && !categories.includes(teamServiceFilter)) return false
-
-        if (!query) return true
-        const memberNames = Array.isArray(team.memberProfiles)
-          ? team.memberProfiles.map((member) => member?.name || '')
-          : (team.memberIds || []).map((id) => userNameById[id] || id)
-
-        const haystack = [team.name, team.description, ...categories, ...memberNames]
-          .map((value) => String(value || '').toLowerCase())
-          .join(' ')
-
-        return haystack.includes(query)
-      })
-      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+    return filterTeams(teams, teamSearchTerm, teamServiceFilter, userNameById)
   }, [teamSearchTerm, teamServiceFilter, teams, userNameById])
 
   const existingTeamMemberOptions = useMemo(() => {
@@ -712,6 +635,7 @@ export default function TeamUsersPage() {
     <ModuleShell
       title="Team & Users"
       description="Manage users, assign roles, configure role access, and organize service teams."
+      variant="admin"
     >
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="ip-stat-card">

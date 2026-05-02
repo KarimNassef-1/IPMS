@@ -13,6 +13,7 @@ import {
 import { ensureFirebaseReady } from "./firebase";
 import { calculateDistribution } from "../utils/calculations";
 import { parseMoney } from "../utils/helpers";
+import { refreshAgencyOverviewSummary } from "./summaryService";
 
 const TRANSACTIONS = "transactions";
 const EXPENSES = "expenses";
@@ -29,6 +30,7 @@ export async function recordIncome(payload) {
 	};
 
 	await addDoc(collection(firestore, TRANSACTIONS), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 
 	return distribution;
 }
@@ -68,12 +70,14 @@ export async function updateTransaction(id, payload) {
 	}
 
 	await updateDoc(doc(firestore, TRANSACTIONS, id), nextPayload);
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteTransaction(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, TRANSACTIONS, id));
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function addExpense(payload) {
@@ -85,6 +89,7 @@ export async function addExpense(payload) {
 	};
 
 	await addDoc(collection(firestore, EXPENSES), data);
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function getExpenses(filters = {}) {
@@ -126,12 +131,14 @@ export async function updateExpense(id, payload) {
 	}
 
 	await updateDoc(doc(firestore, EXPENSES, id), nextPayload);
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function deleteExpense(id) {
 	const firestore = ensureFirebaseReady();
 
 	await deleteDoc(doc(firestore, EXPENSES, id));
+	refreshAgencyOverviewSummary().catch(() => {});
 }
 
 export async function restoreExpense(payload) {
@@ -140,4 +147,5 @@ export async function restoreExpense(payload) {
 	if (!id) throw new Error("Expense id is required to restore expense.");
 	const { id: _id, ...data } = payload;
 	await setDoc(doc(firestore, EXPENSES, id), data, { merge: false });
+	refreshAgencyOverviewSummary().catch(() => {});
 }

@@ -1,26 +1,11 @@
 import ModuleShell from '../components/layout/ModuleShell'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  getExpenses,
-  getTransactions,
-  subscribeExpenses,
-  subscribeTransactions,
-} from '../services/financeService'
-import {
-  getAllServices,
-  getProjects,
-  getProjectsByIds,
-  getServicesByCategories,
-  subscribeAllServices,
-  subscribeProjects,
-  subscribeServicesByCategories,
-} from '../services/projectService'
-import { getTasks, subscribeTasks } from '../services/taskService'
 import { calculateRecognizedPaidRevenue } from '../utils/calculations'
 import { formatCurrency, formatDate, parseMoney } from '../utils/helpers'
 import { serviceAgencyShareValue, serviceContractValue } from '../utils/serviceFinance'
 import { useAuth } from '../hooks/useAuth'
+import { useAgencyDataStreams } from '../hooks/useAgencyDataStreams'
 import { createAllowedServiceCategorySet } from '../utils/serviceAccess'
 
 function isPendingInstallment(installment) {
@@ -41,108 +26,17 @@ export default function DashboardPage() {
     () => createAllowedServiceCategorySet(serviceCategories),
     [serviceCategories],
   )
-  const [transactions, setTransactions] = useState([])
-  const [expenses, setExpenses] = useState([])
-  const [projects, setProjects] = useState([])
-  const [services, setServices] = useState([])
-  const [tasks, setTasks] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [lastUpdated, setLastUpdated] = useState('')
-
-  useEffect(() => {
-    if (authLoading || !user?.uid) return undefined
-
-    let unsubscribers = []
-    const categoryList = Array.from(allowedCategorySet)
-
-    async function initialize() {
-      setLoading(true)
-      setError('')
-      const sinceDate = new Date(new Date().setMonth(new Date().getMonth() - 18)).toISOString()
-
-      try {
-        const [tx, ex, ta] = await Promise.all([
-          getTransactions({ sinceDate }),
-          getExpenses({ sinceDate }),
-          getTasks(),
-        ])
-
-        let initialServices = []
-        let initialProjects = []
-
-        if (hasFullFinancialAccess) {
-          ;[initialServices, initialProjects] = await Promise.all([getAllServices(), getProjects()])
-        } else {
-          initialServices = await getServicesByCategories(categoryList)
-          initialProjects = await getProjectsByIds(
-            initialServices.map((service) => service.projectId).filter(Boolean),
-          )
-        }
-
-        setTransactions(tx)
-        setExpenses(ex)
-        setProjects(initialProjects)
-        setServices(initialServices)
-        setTasks(ta)
-        setLastUpdated(new Date().toISOString())
-
-        const handleStreamError = (streamError) => {
-          setError(streamError?.message || 'Unable to keep dashboard streams connected.')
-        }
-
-        unsubscribers = [
-          subscribeTransactions((items) => {
-            setTransactions(items)
-            setLastUpdated(new Date().toISOString())
-          }, handleStreamError),
-          subscribeExpenses((items) => {
-            setExpenses(items)
-            setLastUpdated(new Date().toISOString())
-          }, handleStreamError),
-          ...(hasFullFinancialAccess
-            ? [
-                subscribeProjects((items) => {
-                  setProjects(items)
-                  setLastUpdated(new Date().toISOString())
-                }, handleStreamError),
-                subscribeAllServices((items) => {
-                  setServices(items)
-                  setLastUpdated(new Date().toISOString())
-                }, handleStreamError),
-              ]
-            : [
-                subscribeServicesByCategories(categoryList, async (items) => {
-                  setServices(items)
-                  const scopedProjects = await getProjectsByIds(
-                    items.map((service) => service.projectId).filter(Boolean),
-                  )
-                  setProjects(scopedProjects)
-                  setLastUpdated(new Date().toISOString())
-                }, handleStreamError),
-              ]),
-          subscribeTasks((items) => {
-            setTasks(items)
-            setLastUpdated(new Date().toISOString())
-          }, handleStreamError),
-        ]
-      } catch (loadError) {
-        setError(loadError?.message || 'Failed to load dashboard data.')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    initialize()
-
-    return () => {
-      unsubscribers.forEach((unsubscribe) => {
-        if (typeof unsubscribe === 'function') unsubscribe()
-      })
-    }
-  }, [allowedCategorySet, hasFullFinancialAccess, authLoading, user?.uid])
+  const { transactions, expenses, projects, services, tasks, summaryOverview, loading, error, lastUpdated } =
+    useAgencyDataStreams({
+      authLoading,
+      userId: user?.uid,
+      hasFullFinancialAccess,
+      allowedCategorySet,
+      monthsBack: 18,
+    })
 
   const dashboardData = useMemo(() => {
+    const summaryTotals = summaryOverview?.totals || {}
     const projectNameById = projects.reduce((acc, project) => {
       acc[project.id] = project.projectName || 'Untitled project'
       return acc
@@ -171,15 +65,28 @@ export default function DashboardPage() {
     const totalRecognizedPaid = financialServices.reduce((sum, item) => sum + item.recognizedPaid, 0)
     const totalPendingShare = financialServices.reduce((sum, item) => sum + item.pendingShare, 0)
 
-    const totalIncome = transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0)
-    const totalExpenses = expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0)
-    const cashPosition = totalIncome - totalExpenses
+    const totalIncome = Number(summaryTotals.cashIn)
+      ? Number(summaryTotals.cashIn)
+      : transactions.reduce((sum, item) => sum + parseMoney(item.totalAmount), 0)
+    const totalExpenses = Number(summaryTotals.cashOut)
+      ? Number(summaryTotals.cashOut)
+      : expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0)
+    const cashPosition = Number(summaryTotals.cashPosition)
+      ? Number(summaryTotals.cashPosition)
+      : totalIncome - totalExpenses
 
-    const completedTasks = tasks.filter(
-      (item) => String(item.status || '').toLowerCase() === 'completed',
-    ).length
-    const openTasks = tasks.length - completedTasks
-    const taskCompletionRate = tasks.length ? (completedTasks / tasks.length) * 100 : 0
+    const completedTasks = Number(summaryTotals.completedTasks)
+      ? Number(summaryTotals.completedTasks)
+      : tasks.filter(
+          (item) => String(item.status || '').toLowerCase() === 'completed',
+        ).length
+    const taskTotalCount = Number(summaryTotals.tasks) || tasks.length
+    const openTasks = Math.max(taskTotalCount - completedTasks, 0)
+    const taskCompletionRate = Number(summaryTotals.taskCompletionRate)
+      ? Number(summaryTotals.taskCompletionRate)
+      : taskTotalCount
+        ? (completedTasks / taskTotalCount) * 100
+        : 0
 
     const activeProjects = projects.filter(
       (item) => String(item.status || '').toLowerCase() !== 'completed',
@@ -228,7 +135,7 @@ export default function DashboardPage() {
       projectFinancialRows,
       serviceCount: financialServices.length,
     }
-  }, [expenses, projects, services, tasks, transactions])
+  }, [expenses, projects, services, summaryOverview, tasks, transactions])
 
   const missionData = useMemo(() => {
     const projectNameById = projects.reduce((acc, project) => {
@@ -428,7 +335,7 @@ export default function DashboardPage() {
     {
       title: 'Task Completion',
       value: `${dashboardData.taskCompletionRate.toFixed(1)}%`,
-      accent: 'text-violet-700',
+      accent: 'text-sky-700',
     },
   ]
 
@@ -464,10 +371,34 @@ export default function DashboardPage() {
 
   return (
     <ModuleShell
-      title="Dashboard"
-      description="Live agency control center powered by real project, service, finance, and task data."
+      title="Admin Control Center"
+      description="What needs attention across the business right now: risk, review queue, finance pressure, and delivery health."
+      variant="admin"
     >
-      <section className="ip-surface-section bg-gradient-to-br from-white via-slate-50 to-sky-50">
+      <section className="ip-section-band grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-rose-700">Risk</p>
+          <p className="mt-1 text-2xl font-black text-rose-800">{missionData.overdueInstallmentsCount || 0}</p>
+          <p className="text-xs text-rose-700">overdue collections need intervention</p>
+        </article>
+        <article className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700">Review Queue</p>
+          <p className="mt-1 text-2xl font-black text-amber-800">{missionData.highPriorityOpenTasks || 0}</p>
+          <p className="text-xs text-amber-700">high-priority execution tasks remain open</p>
+        </article>
+        <article className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-sky-700">Finance Pressure</p>
+          <p className="mt-1 text-2xl font-black text-sky-800">{formatCurrency(dashboardData.totalPendingShare)}</p>
+          <p className="text-xs text-sky-700">pending agency share awaiting conversion</p>
+        </article>
+        <article className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-700">Delivered Value</p>
+          <p className="mt-1 text-2xl font-black text-emerald-800">{formatCurrency(dashboardData.totalRecognizedPaid)}</p>
+          <p className="text-xs text-emerald-700">recognized agency delivery this cycle</p>
+        </article>
+      </section>
+
+      <section className="ip-surface-section">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-base font-black text-slate-900 sm:text-lg">Executive Snapshot</h3>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:gap-2 sm:text-xs">
@@ -477,7 +408,7 @@ export default function DashboardPage() {
             <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">
               Completed Projects: {dashboardData.completedProjects}
             </span>
-            <span className="rounded-full bg-violet-100 px-3 py-1 font-semibold text-violet-700">
+            <span className="rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-800">
               Open Tasks: {dashboardData.openTasks}
             </span>
             <span className="rounded-full bg-sky-100 px-3 py-1 font-semibold text-sky-700">
@@ -496,7 +427,7 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          <aside className="rounded-2xl border border-slate-200 bg-white/90 p-3">
+          <aside className="ip-sticky-rail rounded-2xl border border-slate-200 bg-white/90 p-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Today Focus</p>
             <div className="mt-2 space-y-2">
               {todayFocusItems.map((item) => (
@@ -634,9 +565,9 @@ export default function DashboardPage() {
             <p className="text-xs text-emerald-700">Completed</p>
             <p className="text-2xl font-black text-emerald-800">{dashboardData.completedTasks}</p>
           </div>
-          <div className="rounded-2xl bg-violet-50 p-3">
-            <p className="text-xs text-violet-700">Open</p>
-            <p className="text-2xl font-black text-violet-800">{dashboardData.openTasks}</p>
+          <div className="rounded-2xl bg-amber-50 p-3">
+            <p className="text-xs text-amber-700">Open</p>
+            <p className="text-2xl font-black text-amber-800">{dashboardData.openTasks}</p>
           </div>
           <div className="rounded-2xl bg-sky-50 p-3">
             <p className="text-xs text-sky-700">Completion Rate</p>
@@ -649,14 +580,9 @@ export default function DashboardPage() {
 
       <section className="mt-6 grid gap-4 xl:grid-cols-2">
         <article className="ip-surface-section">
-          <div className="flex items-end justify-between gap-2">
-            <div>
-              <h4 className="font-bold text-slate-900">Smart Alerts</h4>
-              <p className="text-xs text-slate-500">Immediate priorities based on live financial and execution signals.</p>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-2">
+          <details className="ip-progressive-panel" open>
+            <summary>Smart Alerts</summary>
+            <div className="ip-progressive-body space-y-2">
             {missionData.alerts.length === 0 ? (
               <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
                 No critical alerts right now. Operations look stable.
@@ -679,25 +605,22 @@ export default function DashboardPage() {
                   <p className="mt-1 text-xs text-slate-600">{alert.detail}</p>
                   <Link
                     to={alert.to}
-                    className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-[#f0e9ff] px-3 py-1.5 text-xs font-semibold text-[#6f39e7] transition hover:bg-[#e7dcff]"
+                    className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-800 transition hover:bg-sky-200"
                   >
                     {alert.actionLabel}
                   </Link>
                 </div>
               ))
             )}
-          </div>
+            </div>
+          </details>
         </article>
 
         <article className="ip-surface-section">
-          <div className="flex items-end justify-between gap-2">
-            <div>
-              <h4 className="font-bold text-slate-900">30-Day Cash Calendar</h4>
-              <p className="text-xs text-slate-500">Upcoming incoming installments vs planned outgoing expenses.</p>
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+          <details className="ip-progressive-panel" open>
+            <summary>30-Day Cash Calendar</summary>
+            <div className="ip-progressive-body">
+          <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
             <div className="rounded-xl bg-emerald-50 p-2">
               <p className="text-emerald-700">Incoming</p>
               <p className="mt-1 font-black text-emerald-800">{formatCurrency(missionData.next30Incoming)}</p>
@@ -741,6 +664,8 @@ export default function DashboardPage() {
               ))
             )}
           </div>
+            </div>
+          </details>
         </article>
       </section>
 
@@ -748,7 +673,7 @@ export default function DashboardPage() {
         <h4 className="font-bold text-slate-900">Quick Actions</h4>
         <p className="mt-1 text-xs text-slate-500">Jump into high-impact workflows in one click.</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          <Link to="/projects" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#f0e9ff] px-3 py-2 text-center text-sm font-semibold text-[#6f39e7] transition hover:bg-[#e7dcff]">
+          <Link to="/projects" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-100 px-3 py-2 text-center text-sm font-semibold text-slate-800 transition hover:bg-slate-200">
             Add / Update Service
           </Link>
           <Link to="/financials" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-100 px-3 py-2 text-center text-sm font-semibold text-sky-700 transition hover:bg-sky-200">

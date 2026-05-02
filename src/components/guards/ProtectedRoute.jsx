@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { createNotification } from '../../services/notificationService'
+import { publishSecurityEvent } from '../../services/workflowEvents'
 
 const unauthorizedReportCooldownMs = 8000
 const unauthorizedReportCache = new Map()
@@ -20,18 +20,17 @@ function reportUnauthorizedAttemptOnce({ user, role, attemptedPath, reason }) {
     String(user?.displayName || '').trim() || String(user?.email || '').trim() || 'A team member'
   const actorPhotoURL = String(user?.photoURL || '').trim() || ''
 
-  createNotification({
-    type: 'security',
+  publishSecurityEvent({
+    user,
+    profile: { name: actorName, photoURL: actorPhotoURL },
     action: 'unauthorized-access-attempt',
     message: `${actorName} tried to access a restricted page`,
     description: reason,
-    attemptedPath: path,
-    actorId: uid,
-    actorName,
-    actorRole: String(role || '').trim() || 'member',
-    actorPhotoURL,
-    attemptedAt: new Date().toISOString(),
-    adminFeed: true,
+    extra: {
+      attemptedPath: path,
+      actorRole: String(role || '').trim() || 'member',
+      attemptedAt: new Date().toISOString(),
+    },
   }).catch(() => {})
 }
 
@@ -46,11 +45,14 @@ function FullPageLoader() {
 }
 
 export function ProtectedRoute() {
-  const { user, profile, loading } = useAuth()
+  const { user, profile, loading, sessionBlocked, authIssue } = useAuth()
   const location = useLocation()
 
   if (loading) return <FullPageLoader />
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />
+  if (sessionBlocked) {
+    return <Navigate to="/unauthorized" replace state={{ from: location.pathname, reason: 'account', message: authIssue?.message || 'Your account cannot access this workspace.' }} />
+  }
   if (profile?.passwordResetRequired && location.pathname !== '/profile') {
     return <Navigate to="/profile" replace state={{ forcedCredentialUpdate: true }} />
   }
@@ -59,10 +61,13 @@ export function ProtectedRoute() {
 }
 
 export function PermissionRoute({ permission }) {
-  const { user, role, loading, hasAccess } = useAuth()
+  const { user, role, loading, hasAccess, sessionBlocked, authIssue } = useAuth()
   const location = useLocation()
 
-  if (loading || (user && !role)) return <FullPageLoader />
+  if (loading) return <FullPageLoader />
+  if (sessionBlocked) {
+    return <Navigate to="/unauthorized" replace state={{ from: location.pathname, reason: 'account', message: authIssue?.message || 'Your account cannot access this workspace.' }} />
+  }
   if (!hasAccess(permission)) {
     if (user && role !== 'admin') {
       reportUnauthorizedAttemptOnce({
