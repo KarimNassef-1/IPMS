@@ -4,6 +4,7 @@ import {
   createManagedAuthUser,
   deleteUser,
   deleteTeam,
+  requestAuthUserDeletion,
   restoreTeam,
   setUserAccountStatus,
   setUserTeamMembership,
@@ -306,7 +307,9 @@ export default function TeamUsersPage() {
       }
 
       if (!editingUserId) {
-        const generatedEmail = buildManagedLoginEmailFromName(userForm.name)
+        const generatedEmail =
+          buildManagedLoginEmailFromPhone(normalizedPhone) ||
+          buildManagedLoginEmailFromName(userForm.name)
         const generatedPassword = generateManagedTemporaryPassword({
           fullName: userForm.name,
           phoneNumber: normalizedPhone,
@@ -337,8 +340,8 @@ export default function TeamUsersPage() {
         const existingAccountStatus = String(userById[editingUserId]?.accountStatus || 'active').trim().toLowerCase()
         const stableEmail =
           String(userById[editingUserId]?.email || '').trim().toLowerCase() ||
-          buildManagedLoginEmailFromName(userForm.name) ||
-          buildManagedLoginEmailFromPhone(normalizedPhone)
+          buildManagedLoginEmailFromPhone(normalizedPhone) ||
+          buildManagedLoginEmailFromName(userForm.name)
         await upsertUser(editingUserId, {
           name: userForm.name,
           email: stableEmail,
@@ -550,6 +553,14 @@ export default function TeamUsersPage() {
 
     try {
       await setUserAccountStatus(userId, 'removed')
+      await requestAuthUserDeletion({
+        userId,
+        email: targetUser?.email,
+        name: targetUser?.name,
+        reason: 'account_removed',
+        requestedByUserId: currentUser?.uid,
+        requestedByName: currentUser?.displayName || currentUser?.email || 'Admin',
+      })
       toast.success(`Removed user: ${targetUser.name || targetUser.phoneNumber || 'User'}`)
     } catch (error) {
       setStatus(error?.message || 'Failed to delete user.')
@@ -563,6 +574,15 @@ export default function TeamUsersPage() {
     if (!targetUser) return
 
     try {
+      await requestAuthUserDeletion({
+        userId,
+        email: targetUser?.email,
+        name: targetUser?.name,
+        reason: 'clear_from_system',
+        requestedByUserId: currentUser?.uid,
+        requestedByName: currentUser?.displayName || currentUser?.email || 'Admin',
+      })
+
       const impactedTeams = teams.filter((team) => {
         const memberIds = Array.isArray(team.memberIds) ? team.memberIds : []
         const memberProfiles = Array.isArray(team.memberProfiles) ? team.memberProfiles : []

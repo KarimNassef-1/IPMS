@@ -72,6 +72,30 @@ src/
 
 See `docs/firebase-setup.md` for step-by-step Firebase project configuration, role seeding, and deploy flow.
 
+## Maintenance Scripts
+
+- `npm run auth:cleanup:requests`
+  - Processes pending `auth_cleanup_requests` and deletes matching Firebase Auth users.
+- `npm run auth:cleanup:worker`
+  - Polling worker that processes the cleanup queue repeatedly.
+  - Optional flags:
+    - `--interval-minutes 15`
+    - `--max-runs 0` (0 = keep running)
+    - `--dry-run`
+- `npm run audit:orphans`
+  - Audits Auth vs Firestore user mismatches and key collection volumes.
+
+Credential options for these scripts:
+
+1. Set `GOOGLE_APPLICATION_CREDENTIALS` to a Firebase service-account JSON key.
+2. Or use Application Default Credentials (ADC), for example on CI runners or GCP-hosted runtimes.
+
+A scheduled GitHub workflow is included at `.github/workflows/auth-cleanup-requests.yml`.
+It requires repository secrets:
+
+- `FIREBASE_SERVICE_ACCOUNT_JSON`
+- `FIREBASE_PROJECT_ID` (optional but recommended)
+
 ## Next Build Phases
 
 1. Implement Firestore-backed CRUD forms per module.

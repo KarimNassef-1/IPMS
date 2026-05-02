@@ -1,5 +1,5 @@
 import ModuleShell from '../components/layout/ModuleShell'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getAllServices, getServicesByCategories } from '../services/projectService'
 import { getExpenses } from '../services/financeService'
 import {
@@ -52,7 +52,7 @@ export default function BudgetsPage() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const sinceDate = new Date(new Date().setMonth(new Date().getMonth() - 18)).toISOString()
@@ -72,12 +72,12 @@ export default function BudgetsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [allowedCategorySet, hasFullFinancialAccess])
 
   useEffect(() => {
     if (authLoading || !user?.uid) return
     loadData()
-  }, [hasFullFinancialAccess, allowedCategorySet, authLoading, user?.uid])
+  }, [authLoading, loadData, user?.uid])
 
   const paidRevenueTotal = useMemo(() => {
     return services

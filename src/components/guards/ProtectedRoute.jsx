@@ -58,33 +58,6 @@ export function ProtectedRoute() {
   return <Outlet />
 }
 
-export function RoleRoute({ allowedRoles }) {
-  const { user, role, loading } = useAuth()
-  const location = useLocation()
-
-  if (loading) return <FullPageLoader />
-  if (!allowedRoles.includes(role)) {
-    if (user && role !== 'admin') {
-      reportUnauthorizedAttemptOnce({
-        user,
-        role,
-        attemptedPath: location.pathname,
-        reason: `Role route blocked. Required roles: ${allowedRoles.join(', ')}`,
-      })
-    }
-
-    return (
-      <Navigate
-        to="/unauthorized"
-        replace
-        state={{ from: location.pathname, reason: 'role', requiredRoles: allowedRoles }}
-      />
-    )
-  }
-
-  return <Outlet />
-}
-
 export function PermissionRoute({ permission }) {
   const { user, role, loading, hasAccess } = useAuth()
   const location = useLocation()

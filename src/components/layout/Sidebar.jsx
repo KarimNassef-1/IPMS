@@ -5,7 +5,7 @@ import logomarkNoBg from '../../../img/no bg logos/logomarknobg.webp'
 
 const navigationItems = [
   { label: 'Dashboard', to: '/', icon: 'dashboard' },
-  { label: 'Client Portal', to: '/client-portal', icon: 'clientPortal' },
+  { label: 'Client Hub', to: '/client-portal', icon: 'clientPortal' },
   { label: 'Projects', to: '/projects', icon: 'projects' },
   { label: 'Work Hub', to: '/outsource', icon: 'outsourcePortal' },
   { label: 'Tasks', to: '/tasks', icon: 'tasks' },
@@ -27,7 +27,6 @@ function itemClassName(isActive, isSubmenu = false, isSidebarCollapsed = false) 
   const base = isSubmenu
     ? 'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors'
     : 'group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors'
-  // Remove purple bg if sidebar is collapsed and not a submenu
   if (isActive) {
     if (isSidebarCollapsed && !isSubmenu) {
       return `${base} text-white bg-transparent`;
@@ -193,6 +192,9 @@ export default function Sidebar({ mobileMenuOpen, setMobileMenuOpen }) {
       }
       if (item.to === '/outsource') {
         return { ...item, label: 'Work Hub' }
+      }
+      if (item.to === '/client-portal' && role === 'client') {
+        return { ...item, label: 'Client Space' }
       }
       return item
     }),

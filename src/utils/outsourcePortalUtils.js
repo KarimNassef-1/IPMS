@@ -15,6 +15,14 @@ export function getTaskStatus(task) {
 	return "not_started";
 }
 
+export function isTaskBlocked(task) {
+	return getTaskStatus(task) === "blocked";
+}
+
+export function isTaskInReview(task) {
+	return getTaskStatus(task) === "needs_review";
+}
+
 export function isTaskDone(task) {
 	return getTaskStatus(task) === "completed";
 }
@@ -94,11 +102,23 @@ export function timelineStatus(startDate, endDate) {
 
 export function getStatusConfig(status) {
 	switch (status) {
+		case "blocked":
+			return {
+				label: "Blocked",
+				badge: "bg-rose-100 text-rose-700",
+				ring: "border-rose-300",
+			};
 		case "in_progress":
 			return {
 				label: "In Progress",
 				badge: "bg-sky-100 text-sky-700",
 				ring: "border-sky-300",
+			};
+		case "needs_review":
+			return {
+				label: "Needs Review",
+				badge: "bg-amber-100 text-amber-800",
+				ring: "border-amber-300",
 			};
 		case "completed":
 			return {
@@ -117,7 +137,9 @@ export function getStatusConfig(status) {
 
 export function nextTaskStatus(current) {
 	if (current === "not_started") return "in_progress";
-	if (current === "in_progress") return "completed";
+	if (current === "in_progress") return "needs_review";
+	if (current === "needs_review") return "completed";
+	if (current === "blocked") return "in_progress";
 	return "not_started";
 }
 
@@ -257,17 +279,17 @@ export function buildPortalPayload(portal, overrides = {}) {
 export function getPortalViews(isSupervisor) {
 	return isSupervisor
 		? [
-				{ id: "assignments", label: "Assignments" },
-				{ id: "timelines", label: "Timelines" },
-				{ id: "delivery", label: "Delivery Board" },
+				{ id: "assignments", label: "Ops Queue" },
+				{ id: "timelines", label: "Timeline" },
+				{ id: "delivery", label: "Execution" },
 				{ id: "gantt", label: "Gantt View" },
 			]
 		: [
-				{ id: "summary", label: "Summary" },
+				{ id: "summary", label: "My Queue" },
 				{ id: "milestones", label: "Milestones" },
 				{ id: "tasks", label: "Task Board" },
 				{ id: "gantt", label: "Timeline" },
-				{ id: "updates", label: "Updates" },
+				{ id: "updates", label: "Handoffs" },
 			];
 }
 
@@ -280,6 +302,18 @@ export function buildWorkspaceSummary(sortedPortals) {
 		(sum, portal) =>
 			sum +
 			getAllTasks(portal.phases).filter((task) => isTaskDone(task)).length,
+		0,
+	);
+	const blockedTasks = sortedPortals.reduce(
+		(sum, portal) =>
+			sum +
+			getAllTasks(portal.phases).filter((task) => isTaskBlocked(task)).length,
+		0,
+	);
+	const inReviewTasks = sortedPortals.reduce(
+		(sum, portal) =>
+			sum +
+			getAllTasks(portal.phases).filter((task) => isTaskInReview(task)).length,
 		0,
 	);
 	const openTasks = totalTasks - completedTasks;
@@ -302,6 +336,8 @@ export function buildWorkspaceSummary(sortedPortals) {
 		assignments: sortedPortals.length,
 		totalTasks,
 		openTasks,
+		blockedTasks,
+		inReviewTasks,
 		dueSoonAssignments,
 		averageCompletion,
 	};

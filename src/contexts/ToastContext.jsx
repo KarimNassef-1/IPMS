@@ -1,6 +1,5 @@
-import { createContext, useCallback, useMemo, useRef, useState } from 'react'
-
-export const ToastContext = createContext(null)
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { ToastContext } from './toast-context'
 
 function typeStyles(type) {
   if (type === 'error') {

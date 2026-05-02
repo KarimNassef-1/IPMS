@@ -7,22 +7,22 @@ export default function WorkHubStatsStrip({ isSupervisor, workspaceSummary }) {
       color: 'text-slate-900',
     },
     {
+      label: 'Needs Review',
+      value: workspaceSummary.inReviewTasks,
+      sub: 'Waiting for supervisor',
+      color: workspaceSummary.inReviewTasks > 0 ? 'text-amber-700' : 'text-slate-900',
+    },
+    {
+      label: 'Blocked',
+      value: workspaceSummary.blockedTasks,
+      sub: 'Need unblock action',
+      color: workspaceSummary.blockedTasks > 0 ? 'text-rose-700' : 'text-slate-900',
+    },
+    {
       label: 'Open Tasks',
       value: workspaceSummary.openTasks,
-      sub: 'Pending across phases',
+      sub: 'Active execution load',
       color: 'text-slate-900',
-    },
-    {
-      label: 'Due Soon',
-      value: workspaceSummary.dueSoonAssignments,
-      sub: 'Ending within 7 days',
-      color: workspaceSummary.dueSoonAssignments > 0 ? 'text-amber-600' : 'text-slate-900',
-    },
-    {
-      label: 'Avg. Progress',
-      value: `${workspaceSummary.averageCompletion}%`,
-      sub: 'Overall completion',
-      color: workspaceSummary.averageCompletion === 100 ? 'text-emerald-600' : 'text-slate-900',
     },
   ]
 

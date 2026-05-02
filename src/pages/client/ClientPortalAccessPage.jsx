@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import {
-  buildClientPortalLoginRedirect,
   consumeClientPortalQrInvite,
+  ensureClientLinkSession,
+  setClientLinkDisplayName,
 } from '../../services/clientQrAccessService'
 
 export default function ClientPortalAccessPage() {
-  const { user, role, profile, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
   const location = useLocation()
@@ -16,16 +17,19 @@ export default function ClientPortalAccessPage() {
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
   const [completed, setCompleted] = useState(false)
+  const consumeStartedRef = useRef(false)
 
   const token = useMemo(() => {
     const params = new URLSearchParams(location.search)
     return String(params.get('token') || '').trim()
   }, [location.search])
 
-  const loginRedirect = useMemo(
-    () => buildClientPortalLoginRedirect(token),
-    [token],
-  )
+  useEffect(() => {
+    consumeStartedRef.current = false
+    setCompleted(false)
+    setProcessing(false)
+    setError('')
+  }, [token])
 
   useEffect(() => {
     if (!token) {
@@ -33,14 +37,34 @@ export default function ClientPortalAccessPage() {
       return
     }
 
-    if (loading || !user?.uid || processing || completed) return
+    if (loading || user?.uid) return
 
-    if (role !== 'client') {
-      setError('This QR link can only be used by a client account.')
+    let cancelled = false
+
+    async function prepareSession() {
+      try {
+        await ensureClientLinkSession()
+      } catch (sessionError) {
+        if (cancelled) return
+        setError(sessionError?.message || 'Unable to prepare secure access session.')
+      }
+    }
+
+    prepareSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [loading, token, user?.uid])
+
+  useEffect(() => {
+    if (!token) {
+      setError('Invalid QR link. Missing access token.')
       return
     }
 
-    let cancelled = false
+    if (loading || !user?.uid || completed || consumeStartedRef.current) return
+    consumeStartedRef.current = true
 
     async function consumeAccess() {
       setProcessing(true)
@@ -48,7 +72,7 @@ export default function ClientPortalAccessPage() {
 
       try {
         const result = await consumeClientPortalQrInvite({ token, user, profile })
-        if (cancelled) return
+        setClientLinkDisplayName(result?.clientName)
 
         setCompleted(true)
         toast.success(
@@ -58,19 +82,15 @@ export default function ClientPortalAccessPage() {
         )
         navigate('/client-portal', { replace: true })
       } catch (consumeError) {
-        if (cancelled) return
+        consumeStartedRef.current = false
         setError(consumeError?.message || 'Unable to process this QR access link.')
       } finally {
-        if (!cancelled) setProcessing(false)
+        setProcessing(false)
       }
     }
 
     consumeAccess()
-
-    return () => {
-      cancelled = true
-    }
-  }, [completed, loading, navigate, processing, profile, role, toast, token, user])
+  }, [completed, loading, navigate, profile, toast, token, user])
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_4%_4%,_#f4ecff_0%,_#edf4ff_50%,_#f8fafc_100%)] px-4 py-8 sm:px-6 lg:px-8">
@@ -87,25 +107,13 @@ export default function ClientPortalAccessPage() {
           </div>
         ) : null}
 
-        {token && !user ? (
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <p className="text-sm text-slate-700">Please sign in with your client account to continue.</p>
-            <Link
-              to={loginRedirect}
-              className="mt-3 inline-flex items-center rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700"
-            >
-              Sign In To Continue
-            </Link>
-          </div>
-        ) : null}
-
         {token && loading ? (
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-            Checking your session...
+            Preparing secure access session...
           </div>
         ) : null}
 
-        {token && user && processing ? (
+        {token && processing ? (
           <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
             Verifying and linking your project access...
           </div>
@@ -117,9 +125,9 @@ export default function ClientPortalAccessPage() {
           </div>
         ) : null}
 
-        {user && role === 'client' ? (
+        {user ? (
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-xs text-slate-600">
-            Signed in as <span className="font-semibold text-slate-800">{profile?.name || user?.email}</span>
+            Session ready for this access link.
           </div>
         ) : null}
       </div>

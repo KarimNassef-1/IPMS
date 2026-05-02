@@ -1,5 +1,5 @@
 import ModuleShell from '../components/layout/ModuleShell'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getAllServices,
   getProjects,
@@ -42,7 +42,7 @@ export default function FinancialsPage() {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const categories = Array.from(allowedCategorySet)
@@ -68,12 +68,12 @@ export default function FinancialsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [allowedCategorySet, hasFullFinancialAccess])
 
   useEffect(() => {
     if (authLoading || !user?.uid) return
     loadData()
-  }, [hasFullFinancialAccess, allowedCategorySet, authLoading, user?.uid])
+  }, [authLoading, loadData, user?.uid])
 
   const projectNameById = useMemo(() => {
     return projects.reduce((acc, project) => {

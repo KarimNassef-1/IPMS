@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "auth:cleanup:requests": "node scripts/process-auth-cleanup-requests.mjs",
+    "auth:cleanup:worker": "node scripts/run-auth-cleanup-worker.mjs",
+    "audit:orphans": "node scripts/audit-orphan-users-data.mjs"
   },
   "dependencies": {
     "firebase": "^12.12.0",
@@ -28,6 +31,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "firebase-admin": "^13.8.0",
     "globals": "^17.4.0",
     "tailwindcss": "^4.2.2",
     "vite": "^8.0.4"

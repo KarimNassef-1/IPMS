@@ -1,5 +1,5 @@
 import ModuleShell from '../components/layout/ModuleShell'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addServiceToProject,
   createProject,
@@ -14,7 +14,7 @@ import {
   updateService,
   updateProject,
 } from '../services/projectService'
-import { getAllUsers } from '../services/teamUsersService'
+import { createManagedAuthUser, getAllUsers } from '../services/teamUsersService'
 import {
   deleteOutsourcePortalsByService,
   upsertOutsourcePortalByService,
@@ -35,7 +35,8 @@ import {
   serviceAgencyShareValue,
   serviceContractValue,
 } from '../utils/serviceFinance'
-import { createClientPortalQrInvite } from '../services/clientQrAccessService'
+import { buildManagedLoginEmailFromName, generateManagedTemporaryPassword } from '../utils/helpers'
+import { createClientPortalQrInvite, deactivateClientPortalQrInvite, getActiveClientPortalQrInvite, provisionClientProjectGrant } from '../services/clientQrAccessService'
 
 function createInstallment() {
   return {
@@ -51,6 +52,16 @@ function normalizeProjectType(value) {
 
 function getOutsourceUserLabel(user) {
   return user?.displayName || user?.email || 'Outsource user'
+}
+
+function normalizeAccountRole(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function normalizeAccountStatus(value) {
+  const normalized = String(value || 'active').trim().toLowerCase()
+  if (normalized === 'locked' || normalized === 'removed') return normalized
+  return 'active'
 }
 
 function createInitialServiceForm() {
@@ -206,7 +217,11 @@ export default function ProjectsPage() {
   const [projectAssigneeSearch, setProjectAssigneeSearch] = useState('')
   const [serviceAssigneeSearch, setServiceAssigneeSearch] = useState('')
   const [generatingQrProjectId, setGeneratingQrProjectId] = useState('')
+  const [showingQrProjectId, setShowingQrProjectId] = useState('')
+  const [deactivatingQrToken, setDeactivatingQrToken] = useState('')
   const [projectQrInvite, setProjectQrInvite] = useState(null)
+  const [projectClientCredentials, setProjectClientCredentials] = useState(null)
+  const [copiedProjectCredential, setCopiedProjectCredential] = useState('')
   const [projectForm, setProjectForm] = useState({
     clientName: '',
     clientEmail: '',
@@ -250,7 +265,7 @@ export default function ProjectsPage() {
     </button>
   ) : null
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const categories = Array.from(allowedCategorySet)
@@ -276,12 +291,12 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [allowedCategorySet, hasFullFinancialAccess])
 
   useEffect(() => {
     if (authLoading || !user?.uid) return
     loadData()
-  }, [hasFullFinancialAccess, allowedCategorySet, authLoading, user?.uid])
+  }, [authLoading, loadData, user?.uid])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -950,22 +965,112 @@ export default function ProjectsPage() {
     setSubmittingProject(true)
 
     try {
+      const safeClientName = String(projectForm.clientName || '').trim()
+      const generatedClientEmail = safeClientName
+        ? buildManagedLoginEmailFromName(safeClientName)
+        : ''
+      const safeClientEmail = String(projectForm.clientEmail || generatedClientEmail)
+        .trim()
+        .toLowerCase()
+      let linkedClientUserId = ''
+      let generatedPassword = ''
+      let accountCreated = false
+
+      if (safeClientName && safeClientEmail) {
+        const allUsers = await getAllUsers()
+        const existingClientUser = (Array.isArray(allUsers) ? allUsers : []).find(
+          (item) => String(item?.email || '').trim().toLowerCase() === safeClientEmail,
+        )
+
+        if (existingClientUser) {
+          const existingRole = normalizeAccountRole(existingClientUser?.role)
+          const existingStatus = normalizeAccountStatus(existingClientUser?.accountStatus)
+
+          if (existingRole !== 'client') {
+            throw new Error(`Cannot link ${safeClientEmail}. This email already belongs to a non-client account.`)
+          }
+
+          if (existingStatus !== 'active') {
+            throw new Error(`Cannot link ${safeClientEmail}. Client account is ${existingStatus}.`)
+          }
+
+          linkedClientUserId = String(existingClientUser?.id || '').trim()
+        } else {
+          generatedPassword = generateManagedTemporaryPassword({
+            fullName: safeClientName,
+            phoneNumber: '',
+            services: [],
+          })
+
+          linkedClientUserId = await createManagedAuthUser(safeClientEmail, generatedPassword, {
+            name: safeClientName,
+            email: safeClientEmail,
+            role: 'client',
+            title: 'Client',
+            phoneNumber: '',
+            teamIds: [],
+            websiteTracks: [],
+            outsourceServices: [],
+            accountStatus: 'active',
+          })
+          accountCreated = true
+        }
+      }
+
+      const projectPayload = {
+        ...projectForm,
+        clientName: safeClientName,
+        clientEmail: safeClientEmail,
+        clientUserId: linkedClientUserId,
+        clientUserIds: linkedClientUserId ? [linkedClientUserId] : [],
+      }
+
+      let savedProjectId = editingProjectId
       if (editingProjectId) {
-        await updateProject(editingProjectId, projectForm)
+        await updateProject(editingProjectId, projectPayload)
       } else {
-        await createProject(projectForm)
+        const created = await createProject(projectPayload)
+        savedProjectId = created.id
+      }
+
+      // Write a direct client_project_access grant so the client can load their
+      // portal via the grant path (not collection queries which hit rules limits).
+      if (linkedClientUserId && savedProjectId) {
+        try {
+          await provisionClientProjectGrant({
+            clientId: linkedClientUserId,
+            clientEmail: safeClientEmail,
+            clientName: safeClientName,
+            projectId: savedProjectId,
+            projectName: String(projectPayload.projectName || '').trim(),
+          })
+        } catch (grantError) {
+          console.warn('Project saved but grant provisioning failed:', grantError)
+        }
       }
 
       // Notification failure should not cancel successful project save.
       try {
         await createNotification({
           userId: user?.uid,
-          message: `Project saved: ${projectForm.projectName}`,
+          message: `Project saved: ${projectPayload.projectName}`,
           status: 'unread',
           date: new Date().toISOString(),
         })
       } catch (notificationError) {
         console.warn('Project saved but notification failed:', notificationError)
+      }
+
+      if (safeClientName && safeClientEmail) {
+        setProjectClientCredentials({
+          projectName: String(projectPayload.projectName || '').trim(),
+          clientName: safeClientName,
+          loginEmail: safeClientEmail,
+          temporaryPassword: generatedPassword,
+          accountCreated,
+          mode: editingProjectId ? 'updated' : 'created',
+        })
+        setCopiedProjectCredential('')
       }
 
       setProjectForm({
@@ -991,6 +1096,26 @@ export default function ProjectsPage() {
       setProjectError(error?.message || 'Failed to save project. Check Firebase permissions and try again.')
     } finally {
       setSubmittingProject(false)
+    }
+  }
+
+  function closeProjectCredentialsPopup() {
+    setProjectClientCredentials(null)
+    setCopiedProjectCredential('')
+  }
+
+  async function copyProjectCredentials(value, key) {
+    const safeValue = String(value || '').trim()
+    if (!safeValue) return
+    try {
+      await navigator.clipboard.writeText(safeValue)
+      setCopiedProjectCredential(key)
+      toast.success('Copied.')
+      window.setTimeout(() => {
+        setCopiedProjectCredential((current) => (current === key ? '' : current))
+      }, 1400)
+    } catch {
+      toast.error('Copy failed.')
     }
   }
 
@@ -1136,17 +1261,74 @@ export default function ProjectsPage() {
       const invite = await createClientPortalQrInvite({
         projectId: safeProjectId,
         projectName: project?.projectName,
+        clientName: project?.clientName,
         clientEmail: project?.clientEmail,
         createdByUserId: user?.uid,
         createdByName: user?.displayName || user?.email || 'Admin',
       })
 
       setProjectQrInvite(invite)
-      toast.success(`Client QR access generated for ${project?.projectName || 'project'}.`)
+      toast.success(
+        invite?.reused
+          ? `Existing client link reused for ${project?.projectName || 'project'}.`
+          : `Client QR access generated for ${project?.projectName || 'project'}.`,
+      )
     } catch (error) {
       setProjectError(error?.message || 'Failed to generate client QR access link.')
     } finally {
       setGeneratingQrProjectId('')
+    }
+  }
+
+  async function deactivateProjectClientQrInvite(invite) {
+    if (!isAdmin) {
+      setProjectError('Only admin can deactivate client portal QR access.')
+      return
+    }
+
+    const safeToken = String(invite?.token || '').trim()
+    if (!safeToken) return
+
+    setDeactivatingQrToken(safeToken)
+    setProjectError('')
+
+    try {
+      await deactivateClientPortalQrInvite(safeToken)
+      setProjectQrInvite(null)
+      toast.success('Client access link deactivated. Generate again to create a fresh link.')
+    } catch (error) {
+      setProjectError(error?.message || 'Failed to deactivate client QR access link.')
+    } finally {
+      setDeactivatingQrToken('')
+    }
+  }
+
+  async function showExistingProjectClientQrInvite(project) {
+    if (!isAdmin) {
+      setProjectError('Only admin can view client portal QR access.')
+      return
+    }
+
+    const safeProjectId = String(project?.id || '').trim()
+    if (!safeProjectId) return
+
+    setShowingQrProjectId(safeProjectId)
+    setProjectError('')
+
+    try {
+      const invite = await getActiveClientPortalQrInvite(safeProjectId)
+      if (!invite) {
+        setProjectQrInvite(null)
+        toast.info('No active client link found for this project. Generate one first.')
+        return
+      }
+
+      setProjectQrInvite(invite)
+      toast.success('Active client link loaded.')
+    } catch (error) {
+      setProjectError(error?.message || 'Failed to load active client QR access link.')
+    } finally {
+      setShowingQrProjectId('')
     }
   }
 
@@ -2087,6 +2269,16 @@ export default function ProjectsPage() {
                 {isAdmin ? (
                   <button
                     type="button"
+                    onClick={() => showExistingProjectClientQrInvite(project)}
+                    disabled={showingQrProjectId === project.id}
+                    className="inline-flex min-h-9 items-center rounded-lg border border-violet-300 bg-white px-3 py-1 text-xs font-semibold text-violet-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {showingQrProjectId === project.id ? 'Loading...' : 'Show Link'}
+                  </button>
+                ) : null}
+                {isAdmin ? (
+                  <button
+                    type="button"
                     onClick={() => generateProjectClientQrInvite(project)}
                     disabled={generatingQrProjectId === project.id}
                     className="inline-flex min-h-9 items-center rounded-lg bg-violet-600 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
@@ -2106,7 +2298,7 @@ export default function ProjectsPage() {
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-violet-700">Exclusive Client QR Access</p>
                     <p className="mt-1 text-xs text-violet-800/85 break-all">{projectQrInvite.accessUrl}</p>
                     <p className="mt-1 text-[11px] text-violet-700/80">
-                      Expires: {new Date(projectQrInvite.expiresAt).toLocaleString('en-GB')}
+                      Expires: {projectQrInvite.expiresAt ? new Date(projectQrInvite.expiresAt).toLocaleString('en-GB') : 'No expiry (active until deactivated)'}
                     </p>
                   </div>
                   <img
@@ -2129,6 +2321,14 @@ export default function ProjectsPage() {
                     className="inline-flex min-h-9 items-center rounded-lg border border-violet-200 bg-white px-3 py-1 text-xs font-semibold text-violet-700"
                   >
                     Copy Token
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deactivateProjectClientQrInvite(projectQrInvite)}
+                    disabled={deactivatingQrToken === projectQrInvite.token}
+                    className="inline-flex min-h-9 items-center rounded-lg border border-rose-200 bg-white px-3 py-1 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {deactivatingQrToken === projectQrInvite.token ? 'Deactivating...' : 'Deactivate Link'}
                   </button>
                   <button
                     type="button"
@@ -2274,6 +2474,89 @@ export default function ProjectsPage() {
       <div className="mt-4 text-xs text-slate-500">
         Monthly recurring projects are tracked with pause/cancel flags and ready for Cloud Function automation.
       </div>
+
+      {projectClientCredentials ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 px-4">
+          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-violet-600">Client Credentials</p>
+                <h4 className="text-base font-bold text-slate-900">
+                  {projectClientCredentials.mode === 'updated' ? 'Project Updated' : 'Project Created'}
+                </h4>
+                <p className="text-xs text-slate-600">
+                  {projectClientCredentials.clientName} • {projectClientCredentials.projectName || 'Project'}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {projectClientCredentials.accountCreated
+                    ? 'New Firebase client account was created and linked.'
+                    : 'Existing client account was linked to this project.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeProjectCredentialsPopup}
+                className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-slate-500">Login Email</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="break-all text-sm font-semibold text-slate-900">{projectClientCredentials.loginEmail}</p>
+                  <button
+                    type="button"
+                    onClick={() => copyProjectCredentials(projectClientCredentials.loginEmail, 'email')}
+                    className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                  >
+                    {copiedProjectCredential === 'email' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              {projectClientCredentials.accountCreated ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-slate-500">Temporary Password</p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="break-all text-sm font-semibold text-slate-900">{projectClientCredentials.temporaryPassword}</p>
+                    <button
+                      type="button"
+                      onClick={() => copyProjectCredentials(projectClientCredentials.temporaryPassword, 'password')}
+                      className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                    >
+                      {copiedProjectCredential === 'password' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  No new password was generated because this email already has an existing client account.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              {projectClientCredentials.accountCreated ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyProjectCredentials(
+                      `Email: ${projectClientCredentials.loginEmail}\nPassword: ${projectClientCredentials.temporaryPassword}`,
+                      'all',
+                    )
+                  }
+                  className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-700"
+                >
+                  {copiedProjectCredential === 'all' ? 'Copied All' : 'Copy Login Credentials'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </ModuleShell>
   )
 }

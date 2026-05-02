@@ -3,6 +3,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import {
   markNotificationAsRead,
+  pruneAdminFeedNotifications,
   subscribeAdminFeedNotifications,
 } from '../../services/notificationService'
 
@@ -33,6 +34,8 @@ function formatClock(rawDate) {
 
 const NOTIFICATION_HISTORY_CACHE_KEY = 'ipms-admin-notification-history'
 const NOTIFICATION_HISTORY_LIMIT = 200
+const NOTIFICATION_PRUNE_STAMP_KEY = 'ipms-admin-notification-prune-last-run'
+const NOTIFICATION_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 function clampNotificationHistory(items) {
   if (!Array.isArray(items)) return []
@@ -88,6 +91,21 @@ export default function Topbar() {
 
   useEffect(() => {
     if (!isAdmin) return undefined
+
+    const lastRun = Number(window.localStorage.getItem(NOTIFICATION_PRUNE_STAMP_KEY) || 0)
+    if (!Number.isFinite(lastRun) || Date.now() - lastRun > NOTIFICATION_PRUNE_INTERVAL_MS) {
+      pruneAdminFeedNotifications({ keepLatest: NOTIFICATION_HISTORY_LIMIT, keepDays: 180 })
+        .catch(() => {
+          // Keep this silent for users; retention runs as best effort.
+        })
+        .finally(() => {
+          try {
+            window.localStorage.setItem(NOTIFICATION_PRUNE_STAMP_KEY, String(Date.now()))
+          } catch {
+            // Ignore storage write failures.
+          }
+        })
+    }
 
     const unsubscribe = subscribeAdminFeedNotifications(
       (items) => {

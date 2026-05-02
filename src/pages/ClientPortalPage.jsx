@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ModuleShell from '../components/layout/ModuleShell'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -8,7 +8,10 @@ import {
   getClientHealthLabel,
   getClientWorkspace,
   subscribeClientTickets,
+  subscribeAllClientTickets,
+  updateClientTicketStatus,
 } from '../services/clientPortalService'
+import { createNotification } from '../services/notificationService'
 
 function StatusBadge({ value }) {
   const normalized = String(value || '').trim().toLowerCase()
@@ -22,46 +25,245 @@ function StatusBadge({ value }) {
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${classes}`}>{value || 'Pending'}</span>
 }
 
-function ProjectProgressCard({ project }) {
-  const progress = Math.max(Math.min(Number(project?.progress) || 0, 100), 0)
-  const health = getClientHealthLabel(progress)
+export default function ClientPortalPage() {
+  const { role } = useAuth()
+  const isAgency = role === 'admin' || role === 'partner' || role === 'outsource'
+
+  return isAgency ? <AgencyClientHub /> : <ClientSpaceView />
+}
+
+// ─── Agency View (admin / partner / outsource) ──────────────────────────────
+
+function priorityOrder(priority) {
+  const map = { urgent: 0, high: 1, normal: 2, low: 3 }
+  return map[String(priority || '').toLowerCase()] ?? 2
+}
+
+function AgencyClientHub() {
+  const toast = useToast()
+  const [tickets, setTickets] = useState([])
+  const [loadingTickets, setLoadingTickets] = useState(true)
+  const [filterStatus, setFilterStatus] = useState('open')
+  const [updatingTicketId, setUpdatingTicketId] = useState(null)
+
+  useEffect(() => {
+    setLoadingTickets(true)
+    const unsubscribe = subscribeAllClientTickets(
+      (items) => {
+        setTickets(items)
+        setLoadingTickets(false)
+      },
+      (error) => {
+        toast.error(error?.message || 'Failed to load client requests.')
+        setLoadingTickets(false)
+      },
+    )
+    return () => unsubscribe()
+  }, [toast])
+
+  async function onChangeStatus(ticketId, newStatus) {
+    setUpdatingTicketId(ticketId)
+    try {
+      const ticket = tickets.find((item) => item.id === ticketId)
+      await updateClientTicketStatus(ticketId, newStatus)
+
+      createNotification({
+        userId: ticket?.clientId || '',
+        type: 'client-ticket',
+        action: 'client-ticket-status-updated',
+        message: `Your support request was marked ${newStatus}`,
+        description: ticket?.subject || 'Support request',
+        actorId: 'system',
+        actorName: 'IPMS Support',
+        actorRole: 'admin',
+        date: new Date().toISOString(),
+        status: 'unread',
+        adminFeed: false,
+      }).catch(() => {})
+
+      toast.success('Request status updated.')
+    } catch (error) {
+      toast.error(error?.message || 'Failed to update status.')
+    } finally {
+      setUpdatingTicketId(null)
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const base = filterStatus === 'all' ? tickets : tickets.filter((t) => t.status === filterStatus)
+    return [...base].sort((a, b) => {
+      if (a.status !== b.status) {
+        const open = (x) => (x.status === 'open' ? 0 : 1)
+        if (open(a) !== open(b)) return open(a) - open(b)
+      }
+      return priorityOrder(a.priority) - priorityOrder(b.priority)
+    })
+  }, [tickets, filterStatus])
+
+  const counts = useMemo(() => ({
+    all: tickets.length,
+    open: tickets.filter((t) => t.status === 'open').length,
+    resolved: tickets.filter((t) => t.status === 'resolved').length,
+    closed: tickets.filter((t) => t.status === 'closed').length,
+  }), [tickets])
+
+  const workflowPulse = useMemo(() => {
+    const urgent = tickets.filter((ticket) => String(ticket?.priority || '').toLowerCase() === 'urgent').length
+    const high = tickets.filter((ticket) => String(ticket?.priority || '').toLowerCase() === 'high').length
+    return {
+      urgent,
+      high,
+      intake: counts.open,
+      inProgress: counts.open,
+      resolved: counts.resolved,
+    }
+  }, [counts.open, counts.resolved, tickets])
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h4 className="text-base font-semibold text-slate-900">{project?.projectName || 'Project'}</h4>
-          <p className="mt-1 text-xs text-slate-500">{project?.status || 'In progress'}</p>
-        </div>
-        <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-violet-700">{health}</span>
+    <ModuleShell
+      title="Client Hub"
+      description="Monitor and respond to all client support requests across every project."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        {[
+          { key: 'open', label: 'Open' },
+          { key: 'resolved', label: 'Resolved' },
+          { key: 'closed', label: 'Closed' },
+          { key: 'all', label: 'All' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFilterStatus(key)}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              filterStatus === key
+                ? 'bg-violet-600 text-white'
+                : 'border border-slate-200 bg-white text-slate-600 hover:bg-violet-50 hover:text-violet-700'
+            }`}
+          >
+            {label}
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${filterStatus === key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+              {counts[key]}
+            </span>
+          </button>
+        ))}
       </div>
 
-      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500" style={{ width: `${progress}%` }} />
-      </div>
-
-      <div className="mt-2 flex items-center justify-between text-xs text-slate-600">
-        <span>{progress}% done</span>
-        <span>{Number(project?.openServicesCount) || 0} open services</span>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-600">
-        <div className="rounded-xl bg-slate-50 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Start Date</p>
-          <p className="mt-1 font-medium text-slate-800">{formatDate(project?.startDate)}</p>
+      <section className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+        <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-600">Workflow Pulse</h4>
+        <p className="mt-1 text-xs text-slate-500">Shared flow: client request intake to outsource execution to admin/client closure.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="rounded-xl bg-rose-50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.08em] text-rose-500">Urgent</p>
+            <p className="mt-1 text-lg font-bold text-rose-700">{workflowPulse.urgent}</p>
+          </div>
+          <div className="rounded-xl bg-orange-50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.08em] text-orange-500">High</p>
+            <p className="mt-1 text-lg font-bold text-orange-700">{workflowPulse.high}</p>
+          </div>
+          <div className="rounded-xl bg-violet-50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.08em] text-violet-500">Intake</p>
+            <p className="mt-1 text-lg font-bold text-violet-700">{workflowPulse.intake}</p>
+          </div>
+          <div className="rounded-xl bg-sky-50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.08em] text-sky-500">Execution</p>
+            <p className="mt-1 text-lg font-bold text-sky-700">{workflowPulse.inProgress}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.08em] text-emerald-500">Closed</p>
+            <p className="mt-1 text-lg font-bold text-emerald-700">{workflowPulse.resolved}</p>
+          </div>
         </div>
-        <div className="rounded-xl bg-slate-50 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Deadline</p>
-          <p className="mt-1 font-medium text-slate-800">{formatDate(project?.deadline)}</p>
+      </section>
+
+      {loadingTickets ? (
+        <p className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">Loading client requests...</p>
+      ) : filtered.length === 0 ? (
+        <p className="rounded-2xl border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+          {filterStatus === 'all' ? 'No client requests yet.' : `No ${filterStatus} requests.`}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((ticket) => (
+            <article key={ticket.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900">{ticket.subject}</p>
+                    <PriorityBadge value={ticket.priority} />
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {ticket.clientName || 'Client'}{ticket.clientEmail ? ` · ${ticket.clientEmail}` : ''}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-700 whitespace-pre-line">{ticket.details}</p>
+                  <p className="mt-2 text-[11px] text-slate-400">{formatDate(ticket.createdAt)}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <StatusBadge value={ticket.status} />
+                  {ticket.status === 'open' && (
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={updatingTicketId === ticket.id}
+                        onClick={() => onChangeStatus(ticket.id, 'resolved')}
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-60"
+                      >
+                        Resolve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingTicketId === ticket.id}
+                        onClick={() => onChangeStatus(ticket.id, 'closed')}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
+                  {ticket.status === 'resolved' && (
+                    <button
+                      type="button"
+                      disabled={updatingTicketId === ticket.id}
+                      onClick={() => onChangeStatus(ticket.id, 'closed')}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      Close
+                    </button>
+                  )}
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
-      </div>
-    </article>
+      )}
+    </ModuleShell>
   )
 }
 
-export default function ClientPortalPage() {
+function PriorityBadge({ value }) {
+  const normalized = String(value || 'normal').toLowerCase()
+  const classes =
+    normalized === 'urgent'
+      ? 'bg-red-100 text-red-700'
+      : normalized === 'high'
+        ? 'bg-orange-100 text-orange-700'
+        : normalized === 'normal'
+          ? 'bg-blue-100 text-blue-700'
+          : 'bg-slate-100 text-slate-500'
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${classes}`}>
+      {value || 'normal'}
+    </span>
+  )
+}
+
+// ─── Client View ─────────────────────────────────────────────────────────────
+
+function ClientSpaceView() {
   const { user, profile } = useAuth()
   const toast = useToast()
+  const lastErrorToastRef = useRef({ message: '', at: 0 })
+  const isGuestSession = Boolean(user?.isAnonymous)
 
   const [loading, setLoading] = useState(true)
   const [workspace, setWorkspace] = useState({
@@ -77,6 +279,7 @@ export default function ClientPortalPage() {
   })
   const [tickets, setTickets] = useState([])
   const [savingTicket, setSavingTicket] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
   const [ticketForm, setTicketForm] = useState({
     subject: '',
     details: '',
@@ -88,45 +291,55 @@ export default function ClientPortalPage() {
     return `${count} ${count === 1 ? 'project' : 'projects'}`
   }, [workspace?.stats?.totalProjects])
 
-  async function loadWorkspace() {
-    if (!user?.uid) return
+  const showErrorOnce = useCallback((message) => {
+    const text = String(message || '').trim() || 'Something went wrong.'
+    const now = Date.now()
+    const sameMessage = lastErrorToastRef.current.message === text
+    const withinWindow = now - lastErrorToastRef.current.at < 4000
+    if (sameMessage && withinWindow) return
+    lastErrorToastRef.current = { message: text, at: now }
+    toast.error(text)
+  }, [toast])
 
+  const loadWorkspace = useCallback(async () => {
+    if (!user?.uid) return
     setLoading(true)
     try {
       const data = await getClientWorkspace(user, profile)
       setWorkspace(data)
     } catch (error) {
-      toast.error(error?.message || 'Failed to load your client portal data.')
+      showErrorOnce(error?.message || 'Failed to load your client portal data.')
     } finally {
       setLoading(false)
     }
-  }
+  }, [profile, showErrorOnce, user])
 
   useEffect(() => {
     if (!user?.uid) return
     loadWorkspace()
-  }, [user?.uid, user?.email, profile?.name])
+  }, [loadWorkspace, user?.uid])
 
   useEffect(() => {
     if (!user?.uid) return undefined
-
+    if (isGuestSession) {
+      setTickets([])
+      return undefined
+    }
     const unsubscribe = subscribeClientTickets(
       user.uid,
-      (items) => {
-        setTickets(items)
-      },
-      (error) => {
-        toast.error(error?.message || 'Failed to load support requests.')
-      },
+      (items) => setTickets(items),
+      (error) => showErrorOnce(error?.message || 'Failed to load support requests.'),
     )
-
     return () => unsubscribe()
-  }, [user?.uid, toast])
+  }, [isGuestSession, showErrorOnce, user?.uid])
 
   async function onSubmitTicket(event) {
     event.preventDefault()
+    if (isGuestSession) {
+      showErrorOnce('Support requests are disabled for guest link sessions.')
+      return
+    }
     setSavingTicket(true)
-
     try {
       await createClientTicket({
         clientId: user?.uid,
@@ -137,11 +350,22 @@ export default function ClientPortalPage() {
         priority: ticketForm.priority,
       })
 
-      setTicketForm({
-        subject: '',
-        details: '',
-        priority: 'normal',
-      })
+      createNotification({
+        userId: user?.uid || '',
+        type: 'client-ticket',
+        action: 'client-ticket-created',
+        message: `New client request: ${ticketForm.subject}`,
+        description: ticketForm.details,
+        actorId: user?.uid || '',
+        actorName: profile?.name || user?.displayName || user?.email || 'Client',
+        actorEmail: user?.email || '',
+        actorPhotoURL: profile?.photoURL || '',
+        date: new Date().toISOString(),
+        status: 'unread',
+        adminFeed: true,
+      }).catch(() => {})
+
+      setTicketForm({ subject: '', details: '', priority: 'normal' })
       toast.success('Support request submitted successfully.')
     } catch (error) {
       toast.error(error?.message || 'Unable to submit support request.')
@@ -151,31 +375,35 @@ export default function ClientPortalPage() {
   }
 
   const statsCards = [
-    {
-      label: 'Total Projects',
-      value: workspace?.stats?.totalProjects || 0,
-      tone: 'from-violet-500/15 to-violet-400/5',
-    },
-    {
-      label: 'Active Projects',
-      value: workspace?.stats?.activeProjects || 0,
-      tone: 'from-sky-500/15 to-sky-400/5',
-    },
-    {
-      label: 'Completed Projects',
-      value: workspace?.stats?.completedProjects || 0,
-      tone: 'from-emerald-500/15 to-emerald-400/5',
-    },
-    {
-      label: 'Average Progress',
-      value: `${workspace?.stats?.averageProgress || 0}%`,
-      tone: 'from-fuchsia-500/15 to-fuchsia-400/5',
-    },
+    { label: 'Total Projects', value: workspace?.stats?.totalProjects || 0, tone: 'from-violet-500/15 to-violet-400/5' },
+    { label: 'Active Projects', value: workspace?.stats?.activeProjects || 0, tone: 'from-sky-500/15 to-sky-400/5' },
+    { label: 'Completed Projects', value: workspace?.stats?.completedProjects || 0, tone: 'from-emerald-500/15 to-emerald-400/5' },
+    { label: 'Average Progress', value: `${workspace?.stats?.averageProgress || 0}%`, tone: 'from-fuchsia-500/15 to-fuchsia-400/5' },
   ]
+
+  const timelineProjects = useMemo(
+    () =>
+      [...workspace.projects]
+        .filter((project) => project?.deadline)
+        .sort((a, b) => String(a.deadline || '').localeCompare(String(b.deadline || ''))),
+    [workspace.projects],
+  )
+
+  const tabItems = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'timeline', label: 'Timeline & Deliverables' },
+    { id: 'requests', label: 'Requests & Messages' },
+    { id: 'billing', label: 'Billing' },
+  ]
+
+  const showOverviewBlocks = activeTab === 'overview'
+  const showTimelineBlocks = activeTab === 'timeline'
+  const showRequestBlocks = activeTab === 'requests'
+  const showBillingBlocks = activeTab === 'billing'
 
   return (
     <ModuleShell
-      title="Client Portal"
+      title="Client Space"
       description="Track your projects in real time, monitor billing snapshots, and reach the team directly."
       actions={(
         <button
@@ -196,34 +424,78 @@ export default function ClientPortalPage() {
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/80 p-2">
+        {tabItems.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold tracking-[0.06em] transition ${
+              activeTab === tab.id
+                ? 'bg-violet-600 text-white'
+                : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {showOverviewBlocks || showTimelineBlocks || showBillingBlocks ? (
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        {(showOverviewBlocks || showTimelineBlocks) ? (
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4">
           <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-600">Project Progress</h4>
+            <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-600">
+              {showTimelineBlocks ? 'Timeline & Deliverables' : 'Project Progress'}
+            </h4>
             <span className="text-xs text-slate-500">{projectCountLabel}</span>
           </div>
-
           {loading ? (
             <p className="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-500">Loading your projects...</p>
           ) : workspace.projects.length ? (
             <div className="space-y-3">
-              {workspace.projects.map((project) => (
-                <ProjectProgressCard key={project.id} project={project} />
+              {(showTimelineBlocks ? timelineProjects : workspace.projects).map((project) => (
+                <article key={project.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-base font-semibold text-slate-900">{project?.projectName || 'Project'}</h4>
+                      <p className="mt-1 text-xs text-slate-500">{project?.status || 'In progress'}</p>
+                    </div>
+                    <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-violet-700">
+                      {getClientHealthLabel(project?.progress)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Start Date</p>
+                      <p className="mt-1 font-medium text-slate-800">{formatDate(project?.startDate)}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-[0.08em] text-slate-500">Deadline</p>
+                      <p className="mt-1 font-medium text-slate-800">{formatDate(project?.deadline)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500" style={{ width: `${Math.max(Math.min(Number(project?.progress) || 0, 100), 0)}%` }} />
+                  </div>
+                </article>
               ))}
             </div>
           ) : (
             <p className="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-500">
-              No projects are linked to your account yet. Ask your account manager to assign your user to each project (by client name, email, or client user id).
+              No projects are linked to your account yet. Ask your account manager to assign your user to each project.
             </p>
           )}
         </section>
+        ) : null}
 
+        {(showOverviewBlocks || showBillingBlocks) ? (
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4">
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-600">Billing Snapshot</h4>
             <span className="text-xs text-slate-500">{workspace.invoices.length} items</span>
           </div>
-
           <div className="space-y-2">
             {workspace.invoices.length ? (
               workspace.invoices.slice(0, 8).map((invoice) => (
@@ -246,11 +518,19 @@ export default function ClientPortalPage() {
             )}
           </div>
         </section>
+        ) : null}
       </div>
+      ) : null}
 
+      {showRequestBlocks ? (
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <section className="rounded-2xl border border-slate-200 bg-white/80 p-4">
           <h4 className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-600">Request Support</h4>
+          {isGuestSession ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
+              Support requests are hidden in guest link sessions.
+            </div>
+          ) : null}
           <form onSubmit={onSubmitTicket} className="mt-3 space-y-3">
             <input
               type="text"
@@ -259,6 +539,7 @@ export default function ClientPortalPage() {
               placeholder="Subject"
               maxLength={120}
               required
+              disabled={isGuestSession}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
             />
             <textarea
@@ -268,12 +549,14 @@ export default function ClientPortalPage() {
               rows={4}
               maxLength={1200}
               required
+              disabled={isGuestSession}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <select
                 value={ticketForm.priority}
                 onChange={(event) => setTicketForm((current) => ({ ...current, priority: event.target.value }))}
+                disabled={isGuestSession}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
               >
                 <option value="low">Low</option>
@@ -283,7 +566,7 @@ export default function ClientPortalPage() {
               </select>
               <button
                 type="submit"
-                disabled={savingTicket}
+                disabled={savingTicket || isGuestSession}
                 className="inline-flex items-center justify-center rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {savingTicket ? 'Submitting...' : 'Submit Request'}
@@ -315,6 +598,8 @@ export default function ClientPortalPage() {
           </div>
         </section>
       </div>
+      ) : null}
     </ModuleShell>
   )
 }
+

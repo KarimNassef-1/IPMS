@@ -81,6 +81,18 @@ export function subscribeTasks(onData, onError) {
 	);
 }
 
+export function subscribeDailyTasks(onData, onError) {
+	const firestore = ensureFirebaseReady();
+
+	return onSnapshot(
+		collection(firestore, DAILY_TASKS),
+		(snapshot) => {
+			onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+		},
+		onError,
+	);
+}
+
 export async function updateTask(id, payload) {
 	const firestore = ensureFirebaseReady();
 

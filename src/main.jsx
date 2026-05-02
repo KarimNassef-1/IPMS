@@ -5,6 +5,7 @@ import './index.css'
 import { AuthProvider } from './contexts/AuthContext.jsx'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 import AppRouter from './router/AppRouter'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const basePath = import.meta.env.BASE_URL || '/'
 const swPath = `${basePath.replace(/\/$/, '')}/sw.js`
@@ -14,7 +15,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter basename={basePath}>
       <ToastProvider>
         <AuthProvider>
-          <AppRouter />
+          <ErrorBoundary>
+            <AppRouter />
+          </ErrorBoundary>
         </AuthProvider>
       </ToastProvider>
     </BrowserRouter>

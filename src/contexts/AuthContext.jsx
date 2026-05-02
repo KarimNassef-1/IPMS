@@ -10,13 +10,14 @@ import { AuthContext } from './auth-context'
 import { DEFAULT_ROLE_PERMISSIONS } from '../utils/constants'
 import { subscribeRolePermissions, subscribeTeams } from '../services/teamUsersService'
 import { createNotification } from '../services/notificationService'
+import { getClientLinkDisplayName, setClientLinkDisplayName } from '../services/clientQrAccessService'
 import {
   canAccessServiceCategory,
   createAllowedServiceCategorySet,
   resolveTeamServiceCategories,
 } from '../utils/serviceAccess'
 
-const INACTIVITY_LOGOUT_MS = 5 * 60 * 1000
+const INACTIVITY_LOGOUT_MS = 30 * 60 * 1000
 
 function normalizeRole(roleValue) {
   const normalized = String(roleValue || '').trim().toLowerCase()
@@ -24,10 +25,6 @@ function normalizeRole(roleValue) {
   if (normalized === 'partner') return 'partner'
   if (normalized === 'client') return 'client'
   if (normalized === 'outsource') return 'outsource'
-  if (normalized === 'manager') return 'manager'
-  if (normalized === 'finance') return 'finance'
-  if (normalized === 'delivery') return 'delivery'
-  if (normalized === 'viewer') return 'viewer'
   return null
 }
 
@@ -167,6 +164,19 @@ export function AuthProvider({ children }) {
           setUser(null)
           setRole(null)
           setProfile(null)
+          setLoading(false)
+          return
+        }
+
+        if (firebaseUser.isAnonymous) {
+          const linkDisplayName = getClientLinkDisplayName()
+          setUser(firebaseUser)
+          setRole('client')
+          setProfile({
+            name: linkDisplayName || 'Client Guest',
+            photoURL: '',
+            teamIds: [],
+          })
           setLoading(false)
           return
         }
@@ -316,15 +326,35 @@ export function AuthProvider({ children }) {
       photoURL: safePhotoURL,
     }
 
-    await setDoc(
-      doc(firestore, 'users', auth.currentUser.uid),
-      {
+    if (auth.currentUser.isAnonymous) {
+      setProfile((current) => ({
+        ...(current || {}),
         name: nextProfile.name,
         photoURL: nextProfile.photoURL,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true },
-    )
+        teamIds: Array.isArray(current?.teamIds) ? current.teamIds : [],
+      }))
+      setClientLinkDisplayName(nextProfile.name)
+      return nextProfile
+    }
+
+    try {
+      await setDoc(
+        doc(firestore, 'users', auth.currentUser.uid),
+        {
+          name: nextProfile.name,
+          photoURL: nextProfile.photoURL,
+          passwordResetRequired: false,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true },
+      )
+    } catch (error) {
+      const message = String(error?.message || '').toLowerCase()
+      if (message.includes('missing or insufficient permissions')) {
+        throw new Error('Your account does not have permission to update profile settings.')
+      }
+      throw error
+    }
 
     setProfile(nextProfile)
     return nextProfile

@@ -6,8 +6,11 @@ const ACTIVE_SAFE_CODE_DOC = "active";
 const SAFE_CODE_VALIDITY_MS = 10 * 60 * 1000;
 
 function randomChar(charset) {
-	const index = Math.floor(Math.random() * charset.length);
-	return charset[index];
+	const chars = String(charset || "");
+	if (!chars.length) return "";
+	const buf = new Uint32Array(1);
+	globalThis.crypto.getRandomValues(buf);
+	return chars[buf[0] % chars.length];
 }
 
 function generateRandomSafeCode(length = 10) {

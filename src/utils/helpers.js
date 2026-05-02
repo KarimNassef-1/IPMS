@@ -83,9 +83,8 @@ export function buildManagedLoginEmailFromName(fullName, atDate = new Date()) {
 		.split(/\s+/)
 		.filter(Boolean);
 
-	const firstName = sanitizeEmailToken(parts[0] || "user");
-	const secondName = sanitizeEmailToken(parts[1] || "member");
-	const base = `${firstName}${secondName}` || "usermember";
+	const fullNameToken = parts.map((part) => sanitizeEmailToken(part)).join("");
+	const base = fullNameToken || "client";
 
 	const date = atDate instanceof Date ? atDate : new Date();
 	const minuteToken = Number.isNaN(date.getTime())

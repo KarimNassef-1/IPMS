@@ -8,6 +8,8 @@ import {
   getDailyTasks,
   getTasks,
   restoreDailyTask,
+  subscribeDailyTasks,
+  subscribeTasks,
   restoreTask,
   toggleDailyTask,
   updateDailyTask,
@@ -57,9 +59,18 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (authLoading || !user?.uid) return
-    loadTasks()
-    loadDailyTasks()
+    const unsubscribeTasks = subscribeTasks(setTasks, () => {
+      setStatusMessage('Failed to keep tasks in sync in real time.')
+    })
+    const unsubscribeDailyTasks = subscribeDailyTasks(setAllDailyTasks, () => {
+      setStatusMessage('Failed to keep daily tasks in sync in real time.')
+    })
     loadUsers()
+
+    return () => {
+      unsubscribeTasks()
+      unsubscribeDailyTasks()
+    }
   }, [authLoading, user?.uid])
 
   useEffect(() => {

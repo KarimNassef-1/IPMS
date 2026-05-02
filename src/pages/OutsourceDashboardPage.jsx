@@ -101,9 +101,10 @@ export default function OutsourceDashboardPage() {
     )
 
     return () => unsubscribe()
-  }, [user?.uid])
+  }, [user?.email, user?.uid])
 
   const dashboard = useMemo(() => {
+    const nowMs = new Date().getTime()
     const taskRows = portals.flatMap((portal) => {
       const tasks = getAllTasks(portal.phases)
       return tasks.map((task) => ({
@@ -145,7 +146,7 @@ export default function OutsourceDashboardPage() {
     const dueSoonProjects = timelineCards.filter((portal) => {
       const end = parseDate(portal.timelineEnd)
       if (!end) return false
-      const diffDays = Math.ceil((end.getTime() - Date.now()) / 86400000)
+      const diffDays = Math.ceil((end.getTime() - nowMs) / 86400000)
       return diffDays >= 0 && diffDays <= 7
     }).length
 

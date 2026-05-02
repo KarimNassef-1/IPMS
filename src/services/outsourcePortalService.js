@@ -75,6 +75,7 @@ function normalizeTask(payload, index) {
 		deadline: safeText(payload?.deadline),
 		priority: safeText(payload?.priority),
 		status: safeText(payload?.status, "not_started"),
+		blockedReason: safeText(payload?.blockedReason),
 		completed: Boolean(payload?.completed),
 		createdAt: safeText(payload?.createdAt, new Date().toISOString()),
 		comments: Array.isArray(payload?.comments) ? payload.comments : [],

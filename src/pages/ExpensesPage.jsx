@@ -1,5 +1,5 @@
 import ModuleShell from '../components/layout/ModuleShell'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { addExpense, deleteExpense, getExpenses, restoreExpense } from '../services/financeService'
 import { EXPENSE_CATEGORIES } from '../utils/constants'
 import { formatCurrency, parseMoney } from '../utils/helpers'
@@ -34,15 +34,15 @@ export default function ExpensesPage() {
     notes: '',
   })
 
-  async function loadExpenses() {
+  const loadExpenses = useCallback(async () => {
     const data = await getExpenses({ sinceDate: toIsoSinceDate(lookbackDays) })
     setExpenses(data)
-  }
+  }, [lookbackDays])
 
   useEffect(() => {
     if (authLoading || !user?.uid) return
     loadExpenses()
-  }, [lookbackDays, authLoading, user?.uid])
+  }, [authLoading, loadExpenses, user?.uid])
 
   const totalExpenses = useMemo(
     () => expenses.reduce((sum, item) => sum + parseMoney(item.amount), 0),

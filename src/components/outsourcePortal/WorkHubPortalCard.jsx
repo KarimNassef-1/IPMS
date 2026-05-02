@@ -43,6 +43,7 @@ export default function WorkHubPortalCard({
   bulkSelectedTasks,
   setBulkSelectedTasks,
   onReorderPhases,
+  onReorderTasks,
   onSavePhaseEdit,
   onDeletePhase,
   startEditPhase,
@@ -52,6 +53,7 @@ export default function WorkHubPortalCard({
   onBulkDeleteSelected,
   toggleBulkTaskSelection,
   onSetTaskStatus,
+  onToggleTaskBlocked,
   startEditTask,
   onDeleteTask,
   onSaveTaskEdit,
@@ -473,6 +475,11 @@ export default function WorkHubPortalCard({
                                   ) : task.deadline && !isTaskDone(task) ? (
                                     <span className="text-[11px] text-slate-400">{formatDate(task.deadline)}</span>
                                   ) : null}
+                                    {taskStatus === 'blocked' && task?.blockedReason ? (
+                                      <span className="rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">
+                                        {task.blockedReason}
+                                      </span>
+                                    ) : null}
                                 </>
                               ) : null}
 
@@ -485,6 +492,8 @@ export default function WorkHubPortalCard({
                                 >
                                   <span className={`h-1.5 w-1.5 rounded-full ${
                                     taskStatus === 'completed' ? 'bg-emerald-500' :
+                                    taskStatus === 'needs_review' ? 'bg-amber-500' :
+                                    taskStatus === 'blocked' ? 'bg-rose-500' :
                                     taskStatus === 'in_progress' ? 'bg-sky-500' : 'bg-slate-400'
                                   }`} />
                                   {statusCfg.label}
@@ -493,11 +502,27 @@ export default function WorkHubPortalCard({
                                 <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${statusCfg.badge} ${statusCfg.ring}`}>
                                   <span className={`h-1.5 w-1.5 rounded-full ${
                                     taskStatus === 'completed' ? 'bg-emerald-500' :
+                                    taskStatus === 'needs_review' ? 'bg-amber-500' :
+                                    taskStatus === 'blocked' ? 'bg-rose-500' :
                                     taskStatus === 'in_progress' ? 'bg-sky-500' : 'bg-slate-400'
                                   }`} />
                                   {statusCfg.label}
                                 </span>
                               )}
+
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleTaskBlocked(portal, phase.id, task.id)}
+                                  className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                                    taskStatus === 'blocked'
+                                      ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                      : 'border border-rose-200 text-rose-600 hover:bg-rose-50'
+                                  }`}
+                                >
+                                  {taskStatus === 'blocked' ? 'Unblock' : 'Block'}
+                                </button>
+                              ) : null}
 
                               {isEditingTask ? (
                                 <>
@@ -724,7 +749,7 @@ export default function WorkHubPortalCard({
               <div className="min-w-[480px] space-y-2">
                 {phases.map((phase, idx) => {
                   const gEnd = parseDate(getPhaseEndDate(phase))
-                  const gDaysLeft = gEnd ? Math.ceil((gEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
+                  const gDaysLeft = gEnd ? Math.ceil((gEnd.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : null
                   const gComp = getPhaseCompletion(phase)
                   const gOverdue = gDaysLeft !== null && gDaysLeft < 0
                   const gNum = Number(phase?.order) || idx + 1

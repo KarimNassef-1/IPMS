@@ -28,6 +28,7 @@ import { normalizePhoneNumber } from "../utils/helpers";
 const USERS = "users";
 const TEAMS = "teams";
 const ROLE_PERMISSIONS = "role_permissions";
+const AUTH_CLEANUP_REQUESTS = "auth_cleanup_requests";
 
 function normalizeArray(values) {
 	return Array.from(
@@ -382,4 +383,26 @@ export async function setRolePermissions(role, permissions) {
 		},
 		{ merge: true },
 	);
+}
+
+export async function requestAuthUserDeletion(payload) {
+	const firestore = ensureFirebaseReady();
+	const userId = String(payload?.userId || "").trim();
+	if (!userId)
+		throw new Error("User id is required for auth deletion request.");
+
+	const data = {
+		userId,
+		email: normalizeEmail(payload?.email),
+		name: String(payload?.name || "").trim(),
+		reason: String(payload?.reason || "manual_cleanup").trim(),
+		requestedByUserId: String(payload?.requestedByUserId || "").trim(),
+		requestedByName: String(payload?.requestedByName || "").trim(),
+		status: "pending",
+		createdAt: new Date().toISOString(),
+		updatedAt: new Date().toISOString(),
+	};
+
+	const ref = await addDoc(collection(firestore, AUTH_CLEANUP_REQUESTS), data);
+	return { id: ref.id, ...data };
 }

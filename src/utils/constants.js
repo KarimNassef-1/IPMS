@@ -80,12 +80,12 @@ export const DEFAULT_ROLE_PERMISSIONS = {
 		"profile",
 	],
 	client: ["dashboard", "clientPortal", "profile"],
-	outsource: ["dashboard", "outsourcePortal", "profile"],
+	outsource: ["dashboard", "clientPortal", "outsourcePortal", "profile"],
 };
 
 export const PERMISSION_LABELS = {
 	dashboard: "Dashboard",
-	clientPortal: "Client Portal",
+	clientPortal: "Client Hub",
 	projects: "Projects",
 	outsourcePortal: "Work Hub",
 	tasks: "Tasks",

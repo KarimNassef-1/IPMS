@@ -21,15 +21,24 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && userRole() == 'admin';
+      return isSignedIn() && (
+        userRole() == 'admin' ||
+        (request.auth.token.role is string && request.auth.token.role == 'admin')
+      );
     }
 
     function isPartner() {
-      return isSignedIn() && userRole() == 'partner';
+      return isSignedIn() && (
+        userRole() == 'partner' ||
+        (request.auth.token.role is string && request.auth.token.role == 'partner')
+      );
     }
 
     function isOutsource() {
-      return isSignedIn() && userRole() == 'outsource';
+      return isSignedIn() && (
+        userRole() == 'outsource' ||
+        (request.auth.token.role is string && request.auth.token.role == 'outsource')
+      );
     }
 
     function isClient() {
@@ -74,20 +83,30 @@ service cloud.firestore {
       );
     }
 
-    function canClientReadProject(projectId) {
-      return isClient() &&
-        projectId is string &&
-        exists(/databases/$(database)/documents/projects/$(projectId)) &&
-        isClientProject(get(/databases/$(database)/documents/projects/$(projectId)).data);
-    }
-
+    // Direct grant: a {uid}_{projectId} doc exists for this user.
     function hasClientProjectGrant(projectId) {
-      return isClient() &&
+      return isSignedIn() &&
         projectId is string &&
         exists(/databases/$(database)/documents/client_project_access/$(request.auth.uid + '_' + projectId));
     }
 
-    // Supports both legacy single assignee and new multi-assignee array.
+    function canReadProjectForPortal(projectId) {
+      return projectId is string && (
+        hasClientProjectGrant(projectId) ||
+        (
+          isClient() &&
+          exists(/databases/$(database)/documents/projects/$(projectId)) &&
+          isClientProject(get(/databases/$(database)/documents/projects/$(projectId)).data)
+        )
+      );
+    }
+
+    function isPortalOwner(clientId) {
+      return isSignedIn() &&
+        clientId is string &&
+        clientId == request.auth.uid;
+    }
+
     function isAssignedOutsourcePortalUser(data) {
       return isSignedIn() && (
         data.assignedUserId == request.auth.uid ||
@@ -103,16 +122,9 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      // Always allow users to read their own profile doc so role lookup can succeed.
       allow read: if isOwner(userId) || isAdmin();
-
-      // Users can create their own profile doc, and admins can create managed user docs.
       allow create: if isOwner(userId) || isAdmin();
-
-      // Only admin can delete users docs.
       allow delete: if isAdmin();
-
-      // Role/account/team changes must be admin-controlled only.
       allow update: if isAdmin() || (
         isOwner(userId) &&
         request.resource.data.role == resource.data.role &&
@@ -132,49 +144,56 @@ service cloud.firestore {
     }
 
     match /teams/{teamId} {
-      // All signed-in users can read teams so service-scoped access can be resolved client-side.
       allow read: if isSignedIn();
       allow create, update, delete: if isAdmin();
     }
 
     match /role_permissions/{roleId} {
-      // Clients subscribe to role permissions to drive page/module visibility.
       allow read: if isSignedIn();
       allow create, update, delete: if isAdmin();
     }
 
     match /projects/{projectId} {
-      allow read: if isAdminOrPartner() || isClientProject(resource.data) || hasClientProjectGrant(projectId);
+      // Use resource.data directly to avoid redundant get() calls that exhaust
+      // the Firestore rules external-read budget during collection queries.
+      allow read: if isAdminOrPartner()
+        || hasClientProjectGrant(projectId)
+        || isClientProject(resource.data);
       allow create, update, delete: if isAdmin();
     }
 
     match /services/{serviceId} {
-      allow read: if isAdminOrPartner() || canClientReadProject(resource.data.projectId);
+      allow read: if isAdminOrPartner() || canReadProjectForPortal(resource.data.projectId);
       allow create, update, delete: if isAdmin();
     }
 
     match /client_project_access/{accessId} {
-      allow read: if isAdminOrPartner() || (isClient() && resource.data.clientId == request.auth.uid);
-      allow create: if isClient() && request.resource.data.clientId == request.auth.uid;
-      allow update, delete: if isAdminOrPartner();
+      // Direct owner OR the named real client linked from an anonymous QR scan.
+      allow read: if isAdminOrPartner() ||
+        isPortalOwner(resource.data.clientId) ||
+        (isSignedIn() && resource.data.linkedClientUserId == request.auth.uid);
+      // Allow admins to provision grants, or the grant owner to create their own.
+      allow create: if isAdminOrPartner() || isPortalOwner(request.resource.data.clientId);
+      // Allow the linked real client to update (used to re-assign grant to real uid).
+      allow update: if isAdminOrPartner() ||
+        (isSignedIn() && resource.data.linkedClientUserId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'clientId', 'clientEmail', 'clientName', 'updatedAt'
+         ]));
+      allow delete: if isAdminOrPartner();
     }
 
     match /client_portal_qr_tokens/{tokenId} {
-      allow read: if isAdmin() || (
-        isClient() &&
-        resource.data.active == true &&
-        (
-          resource.data.clientEmail == '' ||
-          resource.data.clientEmail == currentUserEmail()
-        )
+      // Only admins can list all tokens. Signed-in users can only read a known token doc.
+      allow list: if isAdmin();
+      allow get: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.active == true
       );
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (
-        isClient() &&
-        (
-          resource.data.clientEmail == '' ||
-          resource.data.clientEmail == currentUserEmail()
-        ) &&
+        isSignedIn() &&
+        resource.data.active == true &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'consumedCount',
           'active',
@@ -182,14 +201,30 @@ service cloud.firestore {
           'lastConsumedByUserId',
           'lastConsumedByEmail',
           'updatedAt'
-        ])
+        ]) &&
+        request.resource.data.consumedCount == resource.data.consumedCount + 1 &&
+        request.resource.data.lastConsumedByUserId == request.auth.uid &&
+        request.resource.data.lastConsumedAt is string &&
+        request.resource.data.updatedAt is string &&
+        (
+          (request.auth.token.email is string && request.resource.data.lastConsumedByEmail == request.auth.token.email) ||
+          (!(request.auth.token.email is string) && request.resource.data.lastConsumedByEmail == '')
+        )
       );
     }
 
     match /client_tickets/{ticketId} {
-      allow read: if isAdminOrPartner() || (isClient() && resource.data.clientId == request.auth.uid);
-      allow create: if isClient() && request.resource.data.clientId == request.auth.uid;
-      allow update, delete: if isAdminOrPartner();
+      allow read: if isAdminOrPartner() || isOutsource() || isPortalOwner(resource.data.clientId);
+      allow create: if isPortalOwner(request.resource.data.clientId);
+      allow update: if isAdminOrPartner() || (
+        isOutsource() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'updatedAt'
+        ]) &&
+        request.resource.data.status in ['open', 'resolved', 'closed'] &&
+        request.resource.data.updatedAt is string
+      );
+      allow delete: if isAdminOrPartner();
     }
 
     match /outsource_portals/{portalId} {
@@ -261,13 +296,23 @@ service cloud.firestore {
       );
       allow create: if isAdminOrPartner() || (
         isSignedIn() && request.resource.data.actorId == request.auth.uid
+      ) || (
+        isOutsource() &&
+        request.resource.data.action in [
+          'client-ticket-status-updated',
+          'outsource-task-status',
+          'outsource-task-blocked-toggle'
+        ] &&
+        request.resource.data.userId is string &&
+        request.resource.data.date is string
       );
       allow update, delete: if isAdmin();
     }
 
-    match /custom_pages/{pageId} {
-      allow read: if isAdminOrPartner();
-      allow create, update, delete: if isAdmin();
+    match /auth_cleanup_requests/{requestId} {
+      // Team user removal path enqueues cleanup work; worker processes it server-side.
+      allow read, create, update, delete: if isAdmin();
     }
+
   }
 }

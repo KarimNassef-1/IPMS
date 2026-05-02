@@ -8,7 +8,10 @@ import {
 	where,
 } from "firebase/firestore";
 import { ensureFirebaseReady } from "./firebase";
-import { getClientAccessGrantsByUserId } from "./clientQrAccessService";
+import {
+	getClientAccessGrantsByLinkedUserId,
+	getClientAccessGrantsByUserId,
+} from "./clientQrAccessService";
 
 const PROJECTS = "projects";
 const SERVICES = "services";
@@ -23,9 +26,13 @@ function safeTextLower(value, fallback = "") {
 	return safeText(value, fallback).toLowerCase();
 }
 
-function safeTextList(values) {
-	if (!Array.isArray(values)) return [];
-	return values.map((value) => safeText(value)).filter(Boolean);
+function isPermissionDeniedError(error) {
+	const message = safeTextLower(error?.message || "");
+	const code = safeTextLower(error?.code || "");
+	return (
+		message.includes("missing or insufficient permissions") ||
+		code.includes("permission-denied")
+	);
 }
 
 function chunkArray(values, chunkSize = 10) {
@@ -277,21 +284,75 @@ export async function getClientWorkspace(user, profile) {
 		};
 	}
 
-	const grants = identity.uid
-		? await getClientAccessGrantsByUserId(identity.uid)
-		: [];
+	let grants = [];
+	if (identity.uid) {
+		try {
+			// Query by direct clientId (logged-in or anonymous session that scanned QR).
+			// Also query by linkedClientUserId to catch grants created during an anonymous
+			// session that are linked back to this real user account.
+			const [directGrants, linkedGrants] = await Promise.all([
+				getClientAccessGrantsByUserId(identity.uid),
+				getClientAccessGrantsByLinkedUserId(identity.uid),
+			]);
+			const grantsById = new Map();
+			for (const grant of [...directGrants, ...linkedGrants]) {
+				const key = safeText(grant?.id);
+				if (key) grantsById.set(key, grant);
+			}
+			grants = Array.from(grantsById.values());
+		} catch (error) {
+			if (isPermissionDeniedError(error)) {
+				throw new Error(
+					"Access denied while reading client access grants. Deploy latest Firestore rules for client_project_access.",
+				);
+			}
+			throw error;
+		}
+	}
 	const grantedProjectIds = grants
 		.map((grant) => safeText(grant?.projectId))
 		.filter(Boolean);
 
-	const [mappedProjects, grantedProjects] = await Promise.all([
-		queryProjectsByClientIdentity(identity),
-		getProjectsByIds(grantedProjectIds),
-	]);
+	const isAnonymousSession = Boolean(user?.isAnonymous);
+	let mappedProjects = [];
+	if (!isAnonymousSession) {
+		try {
+			mappedProjects = await queryProjectsByClientIdentity(identity);
+		} catch (error) {
+			// If Firestore rules deny the identity query, fall through to the
+			// grant-based path below which uses direct document reads and is
+			// not affected by collection-query rule evaluation limits.
+			if (!isPermissionDeniedError(error)) {
+				throw error;
+			}
+		}
+	}
+
+	let grantedProjects = [];
+	try {
+		grantedProjects = await getProjectsByIds(grantedProjectIds);
+	} catch (error) {
+		if (isPermissionDeniedError(error)) {
+			throw new Error(
+				"Access denied while loading project documents. Verify Firestore projects read rules for grant-based access.",
+			);
+		}
+		throw error;
+	}
 
 	const projects = uniqueById([...mappedProjects, ...grantedProjects]);
 	const projectIds = projects.map((project) => project.id);
-	const services = await getServicesByProjectIds(projectIds);
+	let services = [];
+	try {
+		services = await getServicesByProjectIds(projectIds);
+	} catch (error) {
+		if (isPermissionDeniedError(error)) {
+			throw new Error(
+				"Access denied while loading project services. Verify Firestore services read rules for grant-based access.",
+			);
+		}
+		throw error;
+	}
 	const servicesByProjectId = services.reduce((acc, service) => {
 		const key = safeText(service?.projectId);
 		if (!key) return acc;
@@ -402,6 +463,37 @@ export function subscribeClientTickets(clientId, onData, onError) {
 			onData(rows);
 		},
 		onError,
+	);
+}
+
+export function subscribeAllClientTickets(onData, onError) {
+	const firestore = ensureFirebaseReady();
+
+	return onSnapshot(
+		collection(firestore, CLIENT_TICKETS),
+		(snapshot) => {
+			const rows = snapshot.docs
+				.map((item) => ({ id: item.id, ...item.data() }))
+				.sort((left, right) =>
+					safeText(right?.createdAt).localeCompare(safeText(left?.createdAt)),
+				);
+			onData(rows);
+		},
+		onError,
+	);
+}
+
+export async function updateClientTicketStatus(ticketId, status) {
+	const firestore = ensureFirebaseReady();
+	const safeId = safeText(ticketId);
+	if (!safeId) throw new Error("Ticket id is required.");
+	const validStatuses = ["open", "resolved", "closed"];
+	const safeStatus = validStatuses.includes(status) ? status : "open";
+	await import("firebase/firestore").then(({ doc, updateDoc }) =>
+		updateDoc(doc(firestore, CLIENT_TICKETS, safeId), {
+			status: safeStatus,
+			updatedAt: new Date().toISOString(),
+		}),
 	);
 }
 

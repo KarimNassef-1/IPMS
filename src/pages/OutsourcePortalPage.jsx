@@ -25,6 +25,7 @@ import {
   normalizePhaseOrder,
   parseDate,
 } from '../utils/outsourcePortalUtils'
+import { createNotification } from '../services/notificationService'
 
 export default function OutsourcePortalPage() {
   const { user, isAdmin, isPartner, profile } = useAuth()
@@ -47,7 +48,7 @@ export default function OutsourcePortalPage() {
 
   useEffect(() => {
     setActiveView(isSupervisor ? 'assignments' : 'summary')
-  }, [isAdmin, isPartner])
+  }, [isSupervisor])
 
   useEffect(() => {
     if (!user?.uid) return undefined
@@ -79,7 +80,7 @@ export default function OutsourcePortalPage() {
         )
 
     return () => unsubscribe()
-  }, [isSupervisor, user?.uid, toast])
+  }, [isSupervisor, user?.uid, user?.email, toast])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -375,6 +376,7 @@ export default function OutsourcePortalPage() {
   }
 
   async function onSetTaskStatus(portal, phaseId, taskId) {
+    let changedTask = null
     const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
       if (phase.id !== phaseId) return phase
 
@@ -382,7 +384,8 @@ export default function OutsourcePortalPage() {
         if (task.id !== taskId) return task
         const current = getTaskStatus(task)
         const next = nextTaskStatus(current)
-        return { ...task, status: next, completed: next === 'completed' }
+        changedTask = { ...task, status: next, completed: next === 'completed' }
+        return changedTask
       })
 
       // Auto-complete phase if all tasks are done
@@ -395,6 +398,94 @@ export default function OutsourcePortalPage() {
     })
 
     await savePortalPhases(portal, nextPhases)
+
+    if (changedTask && user?.uid) {
+      const actorName = profile?.name || user?.displayName || user?.email || 'Team member'
+      const statusMessage =
+        changedTask.status === 'needs_review'
+          ? `${actorName} submitted task for review`
+          : changedTask.status === 'completed'
+            ? `${actorName} marked a task as completed`
+            : `${actorName} updated a task status`
+
+      createNotification({
+        userId: user.uid,
+        type: 'outsource',
+        action: 'outsource-task-status',
+        message: statusMessage,
+        description: `${portal.projectName || 'Project'} • ${changedTask.name || 'Task'} • ${changedTask.status}`,
+        portalId: portal.id,
+        projectId: portal.projectId,
+        serviceId: portal.serviceId,
+        actorId: user.uid,
+        actorName,
+        actorEmail: user?.email || '',
+        actorPhotoURL: profile?.photoURL || '',
+        date: new Date().toISOString(),
+        status: 'unread',
+        adminFeed: true,
+      }).catch(() => {})
+    }
+  }
+
+  async function onToggleTaskBlocked(portal, phaseId, taskId) {
+    let changedTask = null
+    const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
+      if (phase.id !== phaseId) return phase
+
+      return {
+        ...phase,
+        tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).map((task) => {
+          if (task.id !== taskId) return task
+          const status = getTaskStatus(task)
+          if (status === 'blocked') {
+            changedTask = {
+              ...task,
+              status: 'in_progress',
+              blockedReason: '',
+              completed: false,
+            }
+            return changedTask
+          }
+
+          const blockedReason =
+            window.prompt('Why is this blocked? (optional)') || ''
+          changedTask = {
+            ...task,
+            status: 'blocked',
+            blockedReason: String(blockedReason || '').trim(),
+            completed: false,
+          }
+          return changedTask
+        }),
+      }
+    })
+
+    await savePortalPhases(portal, nextPhases)
+
+    if (changedTask && user?.uid) {
+      const actorName = profile?.name || user?.displayName || user?.email || 'Team member'
+      createNotification({
+        userId: user.uid,
+        type: 'outsource',
+        action: 'outsource-task-blocked-toggle',
+        message:
+          changedTask.status === 'blocked'
+            ? `${actorName} flagged a blocked task`
+            : `${actorName} unblocked a task`,
+        description: `${portal.projectName || 'Project'} • ${changedTask.name || 'Task'}`,
+        portalId: portal.id,
+        projectId: portal.projectId,
+        serviceId: portal.serviceId,
+        actorId: user.uid,
+        actorName,
+        actorEmail: user?.email || '',
+        actorPhotoURL: profile?.photoURL || '',
+        date: new Date().toISOString(),
+        status: 'unread',
+        adminFeed: true,
+      }).catch(() => {})
+    }
   }
 
   async function onTogglePhaseCompletion(portal, phaseId) {
@@ -402,7 +493,7 @@ export default function OutsourcePortalPage() {
       if (phase.id !== phaseId) return phase
       return {
         ...phase,
-        completed: !Boolean(phase.completed),
+        completed: !phase.completed,
       }
     })
     await savePortalPhases(portal, nextPhases)
@@ -468,25 +559,6 @@ export default function OutsourcePortalPage() {
     await savePortalPhases(portal, nextPhases)
     setBulkSelectedTasks(new Set())
     toast.success('Tasks deleted.')
-  }
-
-  async function onBulkChangePhaseIdForSelected(portal, phaseId) {
-    if (!window.confirm(`Move ${bulkSelectedTasks.size} task(s) to a different phase?`)) return
-    // This will be enhanced with a phase selector modal in the UI
-    // For now, we'll just remove from current phase
-    const nextPhases = (Array.isArray(portal.phases) ? portal.phases : []).map((phase) => {
-      if (phase.id !== phaseId) return phase
-      return {
-        ...phase,
-        tasks: (Array.isArray(phase.tasks) ? phase.tasks : []).filter((task) => {
-          const key = `${portal.id}:${phase.id}:${task.id}`
-          return !bulkSelectedTasks.has(key)
-        }),
-      }
-    })
-    await savePortalPhases(portal, nextPhases)
-    setBulkSelectedTasks(new Set())
-    toast.success('Tasks moved.')
   }
 
   async function onAddTaskComment(portal, phaseId, taskId) {
@@ -627,6 +699,7 @@ export default function OutsourcePortalPage() {
             bulkSelectedTasks={bulkSelectedTasks}
             setBulkSelectedTasks={setBulkSelectedTasks}
             onReorderPhases={onReorderPhases}
+            onReorderTasks={onReorderTasks}
             onSavePhaseEdit={onSavePhaseEdit}
             onDeletePhase={onDeletePhase}
             startEditPhase={startEditPhase}
@@ -636,6 +709,7 @@ export default function OutsourcePortalPage() {
             onBulkDeleteSelected={onBulkDeleteSelected}
             toggleBulkTaskSelection={toggleBulkTaskSelection}
             onSetTaskStatus={onSetTaskStatus}
+            onToggleTaskBlocked={onToggleTaskBlocked}
             startEditTask={startEditTask}
             onDeleteTask={onDeleteTask}
             onSaveTaskEdit={onSaveTaskEdit}
